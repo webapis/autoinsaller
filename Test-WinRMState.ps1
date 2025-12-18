@@ -1,44 +1,45 @@
 <#
 .SYNOPSIS
-    Audits the local machine to verify the configuration state of Windows Remote
-    Management (WinRM) and its associated firewall rules.
+    Audits and configures Windows Remote Management (WinRM) / PowerShell Remoting.
+    By default, automatically fixes issues if found.
 
 .DESCRIPTION
-    This script provides a clear, color-coded status report on the key components
-    required for WinRM to function correctly. It checks:
-    1. If the WinRM service is running and set to start automatically.
-    2. If there are active WinRM listeners for HTTP and/or HTTPS.
-    3. If the necessary inbound firewall rules are enabled.
+    Checks:
+    1. WinRM service status and startup type
+    2. Active listeners (with fallback detection for Server Core/minimal installs)
+    3. Firewall rules for current network profile
 
-    The script must be run with Administrator privileges to access service
-    and firewall configurations.
+    By default, runs Enable-PSRemoting -Force to fix any issues.
+    Use -DisableAutoRemediation for audit-only mode.
+
+    Requires Administrator privileges.
 
 .NOTES
-    Author: Gemini Code Assist
-    Version: 1.0
+    Author: Enhanced by Grok
+    Version: 1.3
+    Key improvement: Robust listener detection via Test-WSMan fallback
 #>
+
 [CmdletBinding()]
 param (
-    # If specified, the script will attempt to enable and configure WinRM if any checks fail.
-    [switch]$EnableIfDisabled
+    # Use this switch for audit-only mode (no changes made)
+    [switch]$DisableAutoRemediation
 )
 
-#==============================================================================
+# =============================================================================
 # PRE-FLIGHT CHECKS
-#==============================================================================
+# =============================================================================
 
-# Check for Administrator privileges, which are required for this script.
 Write-Verbose "Checking for Administrator privileges..."
 if (-NOT ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Error "This script requires Administrator privileges. Please re-run it in an elevated PowerShell session." -ErrorAction Stop
+    Write-Error "This script requires Administrator privileges. Please run PowerShell as Administrator." -ErrorAction Stop
 }
 
-# Clear the host for a clean output
 Clear-Host
 
-#==============================================================================
-# SCRIPT BODY
-#==============================================================================
+# =============================================================================
+# MAIN AUDIT FUNCTION
+# =============================================================================
 
 function Invoke-WinRmAudit {
     [CmdletBinding()]
@@ -49,126 +50,136 @@ function Invoke-WinRmAudit {
     Write-Host $AuditTitle -ForegroundColor Cyan
     $auditFailed = $false
 
-    # --- 1. Check WinRM Service State ---
+    # --- 1. WinRM Service Status ---
     Write-Host "`n[1] Checking WinRM Service Status..." -ForegroundColor Yellow
     try {
         $winrmService = Get-Service -Name "WinRM" -ErrorAction Stop
-        $isServiceRunning = $winrmService.Status -eq 'Running'
-        $isServiceAuto = $winrmService.StartType -eq 'Automatic'
+        $isRunning = $winrmService.Status -eq 'Running'
+        $isAuto    = $winrmService.StartType -eq 'Automatic'
 
-        # Use [PSCustomObject] for better compatibility across PowerShell versions.
-        $serviceStatus = [PSCustomObject]@{
+        [PSCustomObject]@{
             'Service Name' = $winrmService.Name
             'Status'       = $winrmService.Status
             'Start Type'   = $winrmService.StartType
-        }
+        } | Format-List
 
-        $serviceStatus | Format-List
-        if ($isServiceRunning -and $isServiceAuto) {
-            Write-Host "[SUCCESS] WinRM service is running and set to start automatically." -ForegroundColor Green
+        if ($isRunning -and $isAuto) {
+            Write-Host "[SUCCESS] WinRM service is running and set to Automatic startup." -ForegroundColor Green
         }
         else {
             $auditFailed = $true
-            if (-NOT $isServiceRunning) {
-                Write-Warning "WinRM service is not running."
-            }
-            if (-NOT $isServiceAuto) {
-                Write-Warning "WinRM service is not set to 'Automatic'. It may not persist after a reboot."
-            }
+            if (-not $isRunning) { Write-Warning "WinRM service is not running." }
+            if (-not $isAuto)    { Write-Warning "WinRM service is not set to Automatic startup." }
         }
     }
     catch {
         $auditFailed = $true
-        Write-Error "Could not find the WinRM service. It may not be installed."
+        Write-Error "WinRM service not found or inaccessible."
     }
 
-    # --- 2. Check WinRM Listener Configuration ---
+    # --- 2. WinRM Listeners (with fallback) ---
     Write-Host "`n[2] Checking for WinRM Listeners..." -ForegroundColor Yellow
-    try {
-        # Use Get-WmiObject for compatibility with PowerShell v2. Get-CimInstance requires v3+.
-        $listeners = Get-WmiObject -Namespace 'root/cimv2/wsman' -Class '__WinRM_Listener' -ErrorAction Stop
+    $listenersDetected = $false
 
+    try {
+        $listeners = Get-WmiObject -Namespace 'root/cimv2/wsman' -Class '__WinRM_Listener' -ErrorAction Stop
         if ($listeners) {
-            Write-Host "[SUCCESS] Active WinRM listeners were found." -ForegroundColor Green
+            Write-Host "[SUCCESS] Active WinRM listeners found (via WMI)." -ForegroundColor Green
             $listeners | ForEach-Object {
                 [PSCustomObject]@{
-                    'Address'   = $_.Address
-                    'Transport' = $_.Transport
-                    'Port'      = $_.Port
-                    'Enabled'   = $_.IsEnabled
+                    Address   = $_.Address
+                    Transport = $_.Transport
+                    Port      = $_.Port
+                    Enabled   = $_.IsEnabled
                 }
             } | Format-Table -AutoSize
-        }
-        else {
-            $auditFailed = $true
-            Write-Warning "No active WinRM listeners were found. Run 'winrm quickconfig' to create them."
+            $listenersDetected = $true
         }
     }
     catch {
-        $auditFailed = $true
-        # This catch block will trigger if the WMI/CIM class doesn't exist or can't be queried.
-        Write-Warning "Could not query for WinRM listeners. This may indicate a corrupted installation."
+        # Fallback to Test-WSMan (more reliable on Server Core/minimal installs)
+        try {
+            Test-WSMan -ComputerName localhost -ErrorAction Stop | Out-Null
+            Write-Host "[SUCCESS] WinRM is responding correctly (verified via Test-WSMan)." -ForegroundColor Green
+            Write-Host "Note: WMI listener query unavailable, but functionality confirmed." -ForegroundColor Cyan
+            $listenersDetected = $true
+        }
+        catch {
+            $auditFailed = $true
+            Write-Warning "WinRM is not responding. Both WMI query and Test-WSMan failed."
+        }
     }
 
-    # --- 3. Check Firewall Rules ---
+    if (-not $listenersDetected) {
+        $auditFailed = $true
+        Write-Warning "No WinRM listeners detected."
+    }
+
+    # --- 3. Firewall Rules ---
     Write-Host "`n[3] Checking Firewall Rules..." -ForegroundColor Yellow
-    # The rule name can be localized. Using the Group name is more reliable across different language packs.
-    $winrmRuleGroup = "@FirewallAPI.dll,-30267" # This is the internal group name for "Windows Remote Management"
+    $winrmRuleGroup = "@FirewallAPI.dll,-30267"
     $firewallRules = Get-NetFirewallRule -Group $winrmRuleGroup -ErrorAction SilentlyContinue
 
     if ($firewallRules) {
-        $ruleStatus = $firewallRules | Select-Object -Property `
-            DisplayName, `
-            @{Name = "Enabled"; Expression = { $_.Enabled } }, `
-            @{Name = "Profiles"; Expression = { $_.Profile } }, `
-            @{Name = "Direction"; Expression = { $_.Direction } }, `
-            @{Name = "LocalPort"; Expression = { (Get-NetFirewallPortFilter -AssociatedNetFirewallRule $_).LocalPort } }
+        $ruleStatus = $firewallRules | Select-Object `
+            DisplayName,
+            @{Name="Enabled";  Expression={$_.Enabled}},
+            @{Name="Profiles"; Expression={$_.Profile}},
+            @{Name="Direction";Expression={$_.Direction}},
+            @{Name="LocalPort"; Expression={(Get-NetFirewallPortFilter -AssociatedNetFirewallRule $_).LocalPort}}
 
         $ruleStatus | Format-Table -AutoSize
 
-        # Check if at least one inbound rule is enabled for the current network profile.
-        $currentProfileCategory = (Get-NetConnectionProfile | Select-Object -First 1).NetworkCategory
-        $isRuleEnabledForProfile = $false
-        if ($currentProfileCategory -eq 'DomainAuthenticated') {
-            # Handle the case where the category is 'DomainAuthenticated' but the rule profile is just 'Domain'
-            $isRuleEnabledForProfile = $firewallRules | Where-Object { $_.Enabled -eq 'True' -and $_.Direction -eq 'Inbound' -and ($_.Profile -like '*Domain*' -or $_.Profile -contains 'Any') }
-        } else {
-            $isRuleEnabledForProfile = $firewallRules | Where-Object { $_.Enabled -eq 'True' -and $_.Direction -eq 'Inbound' -and ($_.Profile -contains $currentProfileCategory -or $_.Profile -contains 'Any') }
+        $currentProfile = (Get-NetConnectionProfile | Select-Object -First 1).NetworkCategory
+
+        $hasEnabledInbound = $firewallRules | Where-Object {
+            $_.Enabled -eq 'True' -and
+            $_.Direction -eq 'Inbound' -and
+            ($_.Profile -contains 'Any' -or
+             $_.Profile -contains $currentProfile -or
+             ($currentProfile -eq 'DomainAuthenticated' -and ($_.Profile -like '*Domain*' -or $_.Profile -contains 'Domain')))
         }
 
-        if ($isRuleEnabledForProfile) {
-            Write-Host "[SUCCESS] An active inbound firewall rule for WinRM was found for the current network profile category ($currentProfileCategory)." -ForegroundColor Green
+        if ($hasEnabledInbound) {
+            Write-Host "[SUCCESS] Enabled inbound firewall rule found for current profile ($currentProfile)." -ForegroundColor Green
         }
         else {
             $auditFailed = $true
-            Write-Warning "No enabled inbound WinRM firewall rule was found for the current network profile ($currentProfileCategory)."
+            Write-Warning "No enabled inbound WinRM firewall rule for current profile ($currentProfile)."
         }
     }
     else {
         $auditFailed = $true
-        Write-Warning "Could not find any firewall rules in the 'Windows Remote Management' group."
+        Write-Warning "No Windows Remote Management firewall rules found."
     }
 
     Write-Host "`n--- Audit Complete ---" -ForegroundColor Cyan
     return $auditFailed
 }
 
-# Run the initial audit
+# =============================================================================
+# EXECUTION
+# =============================================================================
+
 $initialAuditFailed = Invoke-WinRmAudit
 
-# If the audit failed and the -EnableIfDisabled switch was used, attempt remediation.
-if ($initialAuditFailed -and $EnableIfDisabled) {
-    Write-Host "`n[REMEDIATION] Audit failed. Attempting to enable and configure WinRM..." -ForegroundColor Magenta
+if ($initialAuditFailed -and -not $DisableAutoRemediation) {
+    Write-Host "`n[REMEDIATION] Issues detected. Automatically configuring WinRM..." -ForegroundColor Magenta
     try {
-        # The -force parameter prevents prompts, -q makes it quiet.
-        winrm.exe quickconfig -force -q
-        Write-Host "[REMEDIATION] WinRM configuration command executed successfully." -ForegroundColor Green
+        Enable-PSRemoting -Force
+        Write-Host "[REMEDIATION] WinRM successfully configured!" -ForegroundColor Green
 
-        # Re-run the audit to verify the fix.
         Write-Host "`n"
-        Invoke-WinRmAudit -AuditTitle "--- Verification Audit ---"
+        Invoke-WinRmAudit -AuditTitle "--- Verification Audit After Remediation ---"
     }
     catch {
-        Write-Error "An error occurred during WinRM remediation: $_"
+        Write-Error "Remediation failed: $_"
+        Write-Host "Manual intervention may be required (e.g., Group Policy or feature installation)." -ForegroundColor Red
     }
+}
+elseif ($initialAuditFailed -and $DisableAutoRemediation) {
+    Write-Host "`nAudit failed, but auto-remediation was disabled. No changes made." -ForegroundColor Yellow
+}
+else {
+    Write-Host "`nAll checks passed - WinRM is fully configured and ready!" -ForegroundColor Green
 }
