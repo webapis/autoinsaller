@@ -1,3 +1,4 @@
+#Next Step: Configure WinRM on Your Windows PC
 # Enable WinRM
 winrm quickconfig -force
 # Allow basic authentication
@@ -8,3 +9,6 @@ winrm set winrm/config/service '@{AllowUnencrypted="true"}'
 winrm set winrm/config/client '@{TrustedHosts="*"}'
 # Allow WinRM through firewall
 netsh advfirewall firewall add rule name="WinRM-HTTP" dir=in localport=5985 protocol=TCP action=allow
+
+#Verify WinRM is running:
+Test-WSMan
