@@ -1,0 +1,130 @@
+- defaultTab: nodes
+  description: Install Foxit PDF Editor from network share
+  executionEnabled: true
+  id: install-foxit-from-network
+  loglevel: INFO
+  name: Install Foxit PDF Editor (Network Share)
+  nodeFilterEditable: false
+  nodefilters:
+    dispatch:
+      threadcount: '1'
+    filter: 'name: my-remote-windows-pc'
+  nodesSelectedByDefault: true
+  options:
+  - description: 'Network path to installer (e.g., \\10.100.25.58\RundeckInstaller\FoxitPDFEditor202521_L10N_Setup_Website_x64.exe)'
+    label: Network Path to Installer
+    name: network_path
+    required: true
+    value: '\\10.100.25.58\RundeckInstaller\FoxitPDFEditor202521_L10N_Setup_Website_x64.exe'
+  - description: 'Silent installation parameters'
+    label: Install Parameters
+    name: install_params
+    required: false
+    value: '/VERYSILENT /NORESTART /SUPPRESSMSGBOXES'
+  scheduleEnabled: true
+  schedules: []
+  sequence:
+    commands:
+    - script: |-
+        # Variables
+        $networkPath = "${option.network_path}"
+        $installParams = "${option.install_params}"
+        $tempDir = "C:\Temp\Rundeck"
+        $localInstaller = "$tempDir\FoxitPDFEditor_Setup.exe"
+
+        # Create temp directory
+        Write-Output "Creating temporary directory..."
+        New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
+
+        # Test network path accessibility
+        Write-Output "Testing network path: $networkPath"
+        if (!(Test-Path $networkPath)) {
+            Write-Output "ERROR: Cannot access network path: $networkPath"
+            Write-Output "Please verify:"
+            Write-Output "  1. The share exists on the Rundeck server"
+            Write-Output "  2. The remote PC has access to the share"
+            Write-Output "  3. The file exists at the specified path"
+            exit 1
+        }
+
+        # Copy installer to local temp
+        Write-Output "Copying installer from network to local temp..."
+        try {
+            Copy-Item -Path $networkPath -Destination $localInstaller -Force
+            Write-Output "Installer copied successfully"
+        } catch {
+            Write-Output "ERROR: Failed to copy installer: $_"
+            exit 1
+        }
+
+        # Get file size
+        $fileSize = (Get-Item $localInstaller).Length / 1MB
+        Write-Output "Installer size: $([math]::Round($fileSize, 2)) MB"
+
+        # Install Foxit PDF Editor
+        Write-Output "Installing Foxit PDF Editor..."
+        Write-Output "Running: $localInstaller $installParams"
+        
+        try {
+            $process = Start-Process -FilePath $localInstaller -ArgumentList $installParams -Wait -PassThru -NoNewWindow
+            
+            $exitCode = $process.ExitCode
+            Write-Output "Installation exit code: $exitCode"
+            
+            switch ($exitCode) {
+                0 { Write-Output "SUCCESS: Installation completed successfully" }
+                3010 { Write-Output "SUCCESS: Installation completed (reboot required)" }
+                1641 { Write-Output "SUCCESS: Installation completed (reboot initiated)" }
+                default { 
+                    Write-Output "WARNING: Installation completed with exit code: $exitCode"
+                    # Don't fail on non-zero exit codes as some installers return non-standard codes
+                }
+            }
+        } catch {
+            Write-Output "ERROR: Installation failed: $_"
+            exit 1
+        }
+
+        # Verify installation
+        Write-Output ""
+        Write-Output "Verifying installation..."
+        $foxitPaths = @(
+            "C:\Program Files (x86)\Foxit Software\Foxit PDF Editor",
+            "C:\Program Files\Foxit Software\Foxit PDF Editor",
+            "C:\Program Files (x86)\Foxit Software\Foxit PDF Editor 2025",
+            "C:\Program Files\Foxit Software\Foxit PDF Editor 2025"
+        )
+        
+        $installed = $false
+        foreach ($path in $foxitPaths) {
+            if (Test-Path $path) {
+                Write-Output "✓ Foxit PDF Editor found at: $path"
+                $installed = $true
+                
+                # Try to find the executable
+                $exePath = Get-ChildItem -Path $path -Filter "FoxitPDFEditor.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($exePath) {
+                    Write-Output "  Executable: $($exePath.FullName)"
+                    $version = $exePath.VersionInfo.FileVersion
+                    if ($version) {
+                        Write-Output "  Version: $version"
+                    }
+                }
+                break
+            }
+        }
+
+        if (-not $installed) {
+            Write-Output "⚠ WARNING: Could not verify installation in standard paths"
+            Write-Output "The installer may have completed but installed to a different location"
+        }
+
+        # Clean up
+        Write-Output ""
+        Write-Output "Cleaning up temporary files..."
+        Remove-Item -Path $localInstaller -Force -ErrorAction SilentlyContinue
+        Write-Output "Done!"
+      scriptInterpreter: powershell
+    keepgoing: false
+    strategy: node-first
+  uuid: install-foxit-from-network-job
