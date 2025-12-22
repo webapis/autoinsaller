@@ -124,7 +124,7 @@
         Write-Output "Cleaning up temporary files..."
         Remove-Item -Path $localInstaller -Force -ErrorAction SilentlyContinue
         Write-Output "Done!"
-      scriptInterpreter: powershell
+      scriptInterpreter: powershell.exe -ExecutionPolicy Bypass -File
     keepgoing: false
     strategy: node-first
   uuid: install-foxit-from-network-job
