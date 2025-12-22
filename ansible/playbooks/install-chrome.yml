@@ -2,18 +2,24 @@
 - hosts: windows-desktops
   gather_facts: no
   tasks:
-    - name: Ensure Chocolatey is installed
-      ansible.windows.win_shell: |
-        if (!(Test-Path "C:\ProgramData\chocolatey\bin\choco.exe")) {
-          Set-ExecutionPolicy Bypass -Scope Process -Force
-          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
-          iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-        }
-      args:
-        executable: powershell.exe
+    - name: Create temp directory
+      ansible.windows.win_file:
+        path: C:\temp
+        state: directory
+
+    - name: Download Google Chrome installer
+      ansible.windows.win_get_url:
+        url: https://dl.google.com/chrome/install/latest/chrome_installer.exe
+        dest: C:\temp\chrome_installer.exe
 
     - name: Install Google Chrome
-      ansible.windows.win_shell: |
-        choco install googlechrome -y --force
-      args:
-        executable: powershell.exe
+      ansible.windows.win_package:
+        path: C:\temp\chrome_installer.exe
+        arguments: /silent /install
+        state: present
+        product_id: '{8A69D345-D564-463c-AFF1-A69D9E530F96}'
+
+    - name: Clean up installer
+      ansible.windows.win_file:
+        path: C:\temp\chrome_installer.exe
+        state: absent
