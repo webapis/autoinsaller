@@ -153,6 +153,38 @@ function Invoke-WinRmAudit {
         Write-Warning "No Windows Remote Management firewall rules found."
     }
 
+    # --- 4. CredSSP Status ---
+    Write-Host "`n[4] Checking CredSSP Status..." -ForegroundColor Yellow
+    try {
+        $credSSP = Get-Item -Path "WSMan:\localhost\Service\Auth\CredSSP" -ErrorAction Stop
+        if ($credSSP.Value -eq "true") {
+            Write-Host "[SUCCESS] CredSSP Server role is enabled." -ForegroundColor Green
+        } else {
+            $auditFailed = $true
+            Write-Warning "CredSSP Server role is NOT enabled."
+        }
+    } catch {
+        $auditFailed = $true
+        Write-Warning "Failed to check CredSSP status."
+    }
+
+    # --- 5. Registry Settings (LocalAccountTokenFilterPolicy) ---
+    Write-Host "`n[5] Checking LocalAccountTokenFilterPolicy..." -ForegroundColor Yellow
+    $regPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System"
+    $regName = "LocalAccountTokenFilterPolicy"
+    try {
+        $regProp = Get-ItemProperty -Path $regPath -Name $regName -ErrorAction SilentlyContinue
+        if ($regProp -and $regProp.$regName -eq 1) {
+            Write-Host "[SUCCESS] LocalAccountTokenFilterPolicy is set to 1." -ForegroundColor Green
+        } else {
+            $auditFailed = $true
+            Write-Warning "LocalAccountTokenFilterPolicy is not set to 1."
+        }
+    } catch {
+        $auditFailed = $true
+        Write-Warning "Failed to check registry settings."
+    }
+
     Write-Host "`n--- Audit Complete ---" -ForegroundColor Cyan
     return $auditFailed
 }
