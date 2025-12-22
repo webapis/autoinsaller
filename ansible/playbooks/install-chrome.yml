@@ -9,6 +9,4 @@
         creates: C:\ProgramData\chocolatey\bin\choco.exe
 
     - name: Install Google Chrome using Chocolatey
-      community.windows.win_chocolatey:
-        name: googlechrome
-        state: present
+      ansible.windows.win_shell: C:\ProgramData\chocolatey\bin\choco.exe install googlechrome -y
