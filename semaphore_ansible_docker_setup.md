@@ -46,8 +46,6 @@ To keep all configuration files organized, we will use the following directory s
     │   └── hosts.ini
     ├── playbooks/
     │   └── test-playbook.yml
-    └── ssh_keys/
-        └── id_rsa
 ```
 
 1.  Create a root directory named `semaphore-setup`.
@@ -58,23 +56,24 @@ To keep all configuration files organized, we will use the following directory s
 
 ## Step 1: Create the Ansible Project Files
 
-Before launching Semaphore, let's create some placeholder Ansible files. Semaphore will be configured to use these files from within its container.
+Before launching Semaphore, let's create the Ansible files configured for Windows management.
 
-### 1. Create an SSH Key
+### 1. Create an Inventory File
 
-Ansible will use this key to connect to your managed nodes.
-
-**Action:** Generate an SSH key pair and save the **private key** inside the `semaphore-setup/ansible/ssh_keys/` directory with the filename `id_rsa`. Ensure the corresponding public key is on the target machines you intend to manage.
-
-> **Security Note:** Protect this private key. Do not commit it to public version control. The `.gitignore` file in a real project should include `ansible/ssh_keys/`.
-
-### 2. Create an Inventory File
-
-Create a file named `semaphore-setup/ansible/inventory/hosts.ini`:
+For Windows hosts, we typically use WinRM. Create a file named `semaphore-setup/ansible/inventory/hosts.ini`.
+Note: Ensure your target Windows PCs have WinRM enabled (see "Preparing Windows Targets" below).
 
 ```ini
-[test-servers]
-server1.example.com ansible_user=your_remote_user
+[windows-desktops]
+192.168.1.100
+
+[windows-desktops:vars]
+ansible_user=Administrator
+ansible_password=YourSecretPassword
+ansible_connection=winrm
+ansible_winrm_server_cert_validation=ignore
+ansible_port=5985
+ansible_winrm_transport=basic
 ```
 
 **Action:** Replace `server1.example.com` with a target host and `your_remote_user` with the user Ansible should connect as.
@@ -145,7 +144,7 @@ services:
     restart: unless-stopped
 
   semaphore:
-    image: semaphoreui/semaphore:latest
+    build: .
     container_name: semaphore_ui
     ports:
       - "3000:3000"
@@ -184,7 +183,7 @@ With all files in place, open a terminal in the `semaphore-setup` directory and 
 docker-compose up -d
 ```
 
-Docker will download the `mariadb` and `semaphoreui/semaphore` images and create the containers.
+Docker will build the custom Semaphore image (with Windows support) and create the containers.
 
 ## Step 5: Access and Configure Semaphore
 
@@ -196,11 +195,12 @@ Docker will download the `mariadb` and `semaphoreui/semaphore` images and create
 
 Now, let's configure Semaphore to use the Ansible files we created.
 
-1.  **Add SSH Key:**
+1.  **Add Key Store (Credentials):**
     *   In your project, go to **Key Store** and click **"+ New Key"**.
-    *   **Name:** `Ansible SSH Key`
-    *   **Type:** `SSH Key`
-    *   **Key Content:** Open the `id_rsa` file you created earlier, copy its contents, and paste them into the `PRIVATE KEY` field.
+    *   **Name:** `Windows Admin`
+    *   **Type:** `Login with password`
+    *   **Username:** `Administrator`
+    *   **Password:** Enter the password you used in your `hosts.ini` (or leave blank if relying entirely on inventory variables, but a Key is required to save a template).
     *   Click **Save**.
 
 2.  **Add Inventory:**
@@ -214,7 +214,7 @@ Now, let's configure Semaphore to use the Ansible files we created.
     *   Go to **Task Templates** and click **"+ New Template"**.
     *   **Playbook:** Select `test-playbook.yml` from the dropdown.
     *   **Inventory:** Select `Test Servers`.
-    *   **SSH Key:** Select `Ansible SSH Key`.
+    *   **SSH Key:** Select `Windows Admin`.
     *   Click **Save**.
 
 4.  **Run the Job:**

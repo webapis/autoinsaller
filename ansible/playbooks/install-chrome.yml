@@ -1,0 +1,13 @@
+---
+- hosts: windows-desktops
+  gather_facts: no
+  tasks:
+    - name: Ensure Chocolatey is installed (bootstrap if necessary)
+      community.windows.win_chocolatey:
+        name: chocolatey
+        state: present
+
+    - name: Install Google Chrome using Chocolatey
+      community.windows.win_chocolatey:
+        name: googlechrome
+        state: present
