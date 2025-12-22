@@ -1,6 +1,9 @@
 ---
 - hosts: windows-desktops
   gather_facts: no
+  become: yes
+  become_method: runas
+  become_user: Administrator
   tasks:
     - name: Ensure Chocolatey is installed (bootstrap if necessary)
       ansible.windows.win_shell: |
