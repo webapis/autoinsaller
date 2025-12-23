@@ -1,7 +1,7 @@
 ---
 # Ansible Playbook for Semaphore UI with Enum Survey
 # Compatible with older Ansible versions
-# Fixed backslash escaping for UNC paths
+# Using raw string literals to handle UNC paths correctly
 
 - name: Install Shared Printers on Windows Desktops
   hosts: windows-desktops
@@ -13,11 +13,11 @@
     printer_definitions:
       MRK-K0-BT-Konica-224-Color:
         name: "MRK-K0-BT-Konica-224-Color"
-        share_path: "\\\\\\\\{{ print_server }}\\\\MRK-K0-BT-Konica-224-Color"
+        share_path: "\\\\{{ print_server }}\\MRK-K0-BT-Konica-224-Color"
         description: "Konica 224 Color Printer - Basement"
       MRK-K1-Vize-Konica-C301-Color:
         name: "MRK-K1-Vize-Konica-C301-Color"
-        share_path: "\\\\\\\\{{ print_server }}\\\\MRK-K1-Vize-Konica-C301-Color"
+        share_path: "\\\\{{ print_server }}\\MRK-K1-Vize-Konica-C301-Color"
         description: "Konica C301 Color Printer - Floor 1"
 
     printers_to_install: []
@@ -83,8 +83,8 @@
 
     - name: Install selected printers using PowerShell
       ansible.windows.win_shell: >-
-        $printerName = '{{ item.name }}';
-        $printerPath = '{{ item.share_path }}';
+        $printerName = "{{ item.name }}";
+        $printerPath = "{{ item.share_path | replace('\\', '\\\\') }}";
         Write-Output "Attempting to add printer: $printerName from $printerPath";
         $existingPrinter = Get-Printer -Name $printerName -ErrorAction SilentlyContinue;
         if ($existingPrinter) {
