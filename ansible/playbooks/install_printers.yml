@@ -1,0 +1,147 @@
+---
+# Ansible Playbook for Semaphore UI
+# This playbook is designed to work with Semaphore's survey feature
+# 
+# Semaphore Task Template Configuration:
+# 1. Go to Task Templates
+# 2. Create/Edit your template
+# 3. Enable "Allow CLI args in Task"
+# 4. Add Survey Variables (see below)
+
+- name: Install Shared Printers on Windows Desktops
+  hosts: windows-desktops
+  gather_facts: no
+
+  vars:
+    print_server: "HVTRM-WS-PRNT.caliksoa.local"
+
+    # Printer definitions - Add new printers here
+    printer_definitions:
+      MRK-K0-BT-Konica-224-Color:
+        name: "MRK-K0-BT-Konica-224-Color"
+        share_path: "\\\\{{ print_server }}\\MRK-K0-BT-Konica-224-Color"
+        description: "Konica 224 Color Printer - Basement"
+      MRK-K1-Vize-Konica-C301-Color:
+        name: "MRK-K1-Vize-Konica-C301-Color"
+        share_path: "\\\\{{ print_server }}\\MRK-K1-Vize-Konica-C301-Color"
+        description: "Konica C301 Color Printer - Floor 1"
+
+    # This variable will be populated by Semaphore survey
+    # Format: comma-separated list like "MRK-K0-BT-Konica-224-Color,MRK-K1-Vize-Konica-C301-Color"
+    selected_printers_input: ""
+
+  tasks:
+    - name: Parse selected printers from input
+      set_fact:
+        selected_printers_list: "{{ selected_printers_input.split(',') | map('trim') | reject('equalto', '') | list }}"
+      when: selected_printers_input != ""
+
+    - name: Set empty list if no input provided
+      set_fact:
+        selected_printers_list: []
+      when: selected_printers_input == ""
+
+    - name: Display available printers
+      debug:
+        msg: |
+          Available Printers:
+          {% for printer_key, printer in printer_definitions.items() %}
+          - {{ printer_key }}: {{ printer.description }}
+          {% endfor %}
+      when: selected_printers_list | length == 0
+
+    - name: Validate printer selection
+      fail:
+        msg: |
+          No printers selected!
+          
+          Please provide printer names via Semaphore survey variable 'selected_printers_input'
+          Format: Comma-separated printer names
+          Example: MRK-K0-BT-Konica-224-Color,MRK-K1-Vize-Konica-C301-Color
+          
+          Available printers:
+          {% for printer_key in printer_definitions.keys() %}
+          - {{ printer_key }}
+          {% endfor %}
+      when: selected_printers_list | length == 0
+
+    - name: Build printers to install list
+      set_fact:
+        printers_to_install: "{{ printers_to_install | default([]) + [printer_definitions[item]] }}"
+      loop: "{{ selected_printers_list }}"
+      when: item in printer_definitions.keys()
+
+    - name: Warn about invalid printer names
+      debug:
+        msg: "WARNING: '{{ item }}' is not a valid printer name and will be skipped"
+      loop: "{{ selected_printers_list }}"
+      when: item not in printer_definitions.keys()
+
+    - name: Display installation plan
+      debug:
+        msg: |
+          ============================================
+          Installation Plan for: {{ inventory_hostname }}
+          ============================================
+          Printers to install:
+          {% for printer in printers_to_install %}
+          ✓ {{ printer.name }}
+            Location: {{ printer.description }}
+            Path: {{ printer.share_path }}
+          {% endfor %}
+          ============================================
+
+    - name: Ensure Print Spooler service is running
+      ansible.windows.win_service:
+        name: Spooler
+        start_mode: auto
+        state: started
+      register: spooler_result
+
+    - name: Display Spooler status
+      debug:
+        msg: "Print Spooler service is {{ spooler_result.state }}"
+
+    - name: Install selected printers
+      community.windows.win_printer:
+        name: "{{ item.name }}"
+        path: "{{ item.share_path }}"
+        state: present
+      loop: "{{ printers_to_install }}"
+      register: printer_install_results
+
+    - name: Generate installation summary
+      set_fact:
+        installation_summary: |
+          ============================================
+          INSTALLATION SUMMARY
+          ============================================
+          Host: {{ inventory_hostname }}
+          Print Spooler: {{ 'Running ✓' if spooler_result.state == 'started' else 'Issue ✗' }}
+          
+          Printer Installation Results:
+          {% for result in printer_install_results.results %}
+          {% if result.changed %}
+          ✓ {{ result.item.name }}: Newly Installed
+          {% else %}
+          ℹ {{ result.item.name }}: Already Present
+          {% endif %}
+          {% endfor %}
+          ============================================
+
+    - name: Display installation summary
+      debug:
+        msg: "{{ installation_summary }}"
+
+    - name: Create installation report (optional)
+      copy:
+        content: |
+          Printer Installation Report
+          Generated: {{ ansible_date_time.iso8601 }}
+          Host: {{ inventory_hostname }}
+          User: {{ ansible_user_id | default('N/A') }}
+          
+          {{ installation_summary }}
+        dest: "/tmp/printer_install_{{ inventory_hostname }}_{{ ansible_date_time.epoch }}.txt"
+      delegate_to: localhost
+      when: false  # Set to true if you want to generate reports
