@@ -1,6 +1,6 @@
 ---
 # Ansible Playbook for Semaphore UI with Enum Survey
-# Works with the Enum dropdown survey you've configured
+# This version handles different possible variable names from Semaphore
 
 - name: Install Shared Printers on Windows Desktops
   hosts: windows-desktops
@@ -20,14 +20,38 @@
         share_path: "\\\\{{ print_server }}\\MRK-K1-Vize-Konica-C301-Color"
         description: "Konica C301 Color Printer - Floor 1"
 
-    # This comes from your Semaphore Enum survey
-    # The survey passes selected printer names as a list
+    # Default empty - will be populated by survey
     printers_to_install_names: []
+    
+    # Alternative variable names that Semaphore might use
+    printer_selection: []
+    selected_printers: []
+    printers: []
 
   tasks:
-    - name: Display survey input
+    - name: Debug - Show all possible survey variables
       debug:
-        msg: "Received printer selection from survey: {{ printers_to_install_names }}"
+        msg:
+          - "printers_to_install_names: {{ printers_to_install_names | default([]) }}"
+          - "printer_selection: {{ printer_selection | default([]) }}"
+          - "selected_printers: {{ selected_printers | default([]) }}"
+          - "printers: {{ printers | default([]) }}"
+          - "All vars: {{ vars.keys() | select('match', '.*printer.*') | list }}"
+
+    - name: Determine which variable contains the selection
+      set_fact:
+        selected_printer_names: >-
+          {{
+            printers_to_install_names if (printers_to_install_names | default([]) | length > 0)
+            else (printer_selection if (printer_selection | default([]) | length > 0)
+            else (selected_printers if (selected_printers | default([]) | length > 0)
+            else (printers if (printers | default([]) | length > 0)
+            else [])))
+          }}
+
+    - name: Display what we received
+      debug:
+        msg: "Received printer selection: {{ selected_printer_names }}"
 
     - name: Validate that printers were selected
       fail:
@@ -35,18 +59,24 @@
           No printers selected from survey!
           
           Please select at least one printer from the dropdown in Semaphore.
-      when: printers_to_install_names | length == 0
+          
+          Debug info - none of these variables contained data:
+          - printers_to_install_names: {{ printers_to_install_names | default([]) }}
+          - printer_selection: {{ printer_selection | default([]) }}
+          - selected_printers: {{ selected_printers | default([]) }}
+          - printers: {{ printers | default([]) }}
+      when: selected_printer_names | length == 0
 
     - name: Build full printer objects from selected names
       set_fact:
         printers_to_install: "{{ printers_to_install | default([]) + [printer_definitions[item]] }}"
-      loop: "{{ printers_to_install_names }}"
+      loop: "{{ selected_printer_names }}"
       when: item in printer_definitions.keys()
 
     - name: Warn about invalid printer names
       debug:
         msg: "WARNING: '{{ item }}' is not a valid printer name and will be skipped"
-      loop: "{{ printers_to_install_names }}"
+      loop: "{{ selected_printer_names }}"
       when: item not in printer_definitions.keys()
 
     - name: Display installation plan
