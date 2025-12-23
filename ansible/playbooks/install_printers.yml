@@ -83,8 +83,8 @@
 
     - name: Install selected printers using PowerShell
       ansible.windows.win_shell: |
-        $printerName = {{ '{{ item.name }}' }}
-        $printerPath = {{ '{{ item.share_path }}' }}
+        $printerName = "{{ item.name }}"
+        $printerPath = "{{ item.share_path }}"
 
         # Debug: Show what path we're using
         Write-Output "Attempting to add printer: $printerName from $printerPath"
