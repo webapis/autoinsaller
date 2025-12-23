@@ -1,12 +1,6 @@
 ---
-# Ansible Playbook for Semaphore UI
-# This playbook is designed to work with Semaphore's survey feature
-# 
-# Semaphore Task Template Configuration:
-# 1. Go to Task Templates
-# 2. Create/Edit your template
-# 3. Enable "Allow CLI args in Task"
-# 4. Add Survey Variables (see below)
+# Ansible Playbook for Semaphore UI with Enum Survey
+# Works with the Enum dropdown survey you've configured
 
 - name: Install Shared Printers on Windows Desktops
   hosts: windows-desktops
@@ -26,55 +20,33 @@
         share_path: "\\\\{{ print_server }}\\MRK-K1-Vize-Konica-C301-Color"
         description: "Konica C301 Color Printer - Floor 1"
 
-    # This variable will be populated by Semaphore survey
-    # Format: comma-separated list like "MRK-K0-BT-Konica-224-Color,MRK-K1-Vize-Konica-C301-Color"
-    selected_printers_input: ""
+    # This comes from your Semaphore Enum survey
+    # The survey passes selected printer names as a list
+    printers_to_install_names: []
 
   tasks:
-    - name: Parse selected printers from input
-      set_fact:
-        selected_printers_list: "{{ selected_printers_input.split(',') | map('trim') | reject('equalto', '') | list }}"
-      when: selected_printers_input != ""
-
-    - name: Set empty list if no input provided
-      set_fact:
-        selected_printers_list: []
-      when: selected_printers_input == ""
-
-    - name: Display available printers
+    - name: Display survey input
       debug:
-        msg: |
-          Available Printers:
-          {% for printer_key, printer in printer_definitions.items() %}
-          - {{ printer_key }}: {{ printer.description }}
-          {% endfor %}
-      when: selected_printers_list | length == 0
+        msg: "Received printer selection from survey: {{ printers_to_install_names }}"
 
-    - name: Validate printer selection
+    - name: Validate that printers were selected
       fail:
         msg: |
-          No printers selected!
+          No printers selected from survey!
           
-          Please provide printer names via Semaphore survey variable 'selected_printers_input'
-          Format: Comma-separated printer names
-          Example: MRK-K0-BT-Konica-224-Color,MRK-K1-Vize-Konica-C301-Color
-          
-          Available printers:
-          {% for printer_key in printer_definitions.keys() %}
-          - {{ printer_key }}
-          {% endfor %}
-      when: selected_printers_list | length == 0
+          Please select at least one printer from the dropdown in Semaphore.
+      when: printers_to_install_names | length == 0
 
-    - name: Build printers to install list
+    - name: Build full printer objects from selected names
       set_fact:
         printers_to_install: "{{ printers_to_install | default([]) + [printer_definitions[item]] }}"
-      loop: "{{ selected_printers_list }}"
+      loop: "{{ printers_to_install_names }}"
       when: item in printer_definitions.keys()
 
     - name: Warn about invalid printer names
       debug:
         msg: "WARNING: '{{ item }}' is not a valid printer name and will be skipped"
-      loop: "{{ selected_printers_list }}"
+      loop: "{{ printers_to_install_names }}"
       when: item not in printer_definitions.keys()
 
     - name: Display installation plan
@@ -85,7 +57,7 @@
           ============================================
           Printers to install:
           {% for printer in printers_to_install %}
-          ✓ {{ printer.name }}
+          + {{ printer.name }}
             Location: {{ printer.description }}
             Path: {{ printer.share_path }}
           {% endfor %}
@@ -102,13 +74,32 @@
       debug:
         msg: "Print Spooler service is {{ spooler_result.state }}"
 
-    - name: Install selected printers
-      community.windows.win_printer:
-        name: "{{ item.name }}"
-        path: "{{ item.share_path }}"
-        state: present
+    - name: Install selected printers using PowerShell
+      ansible.windows.win_shell: |
+        $printerName = "{{ item.name }}"
+        $printerPath = "{{ item.share_path }}"
+        
+        # Check if printer already exists
+        $existingPrinter = Get-Printer -Name $printerName -ErrorAction SilentlyContinue
+        
+        if ($existingPrinter) {
+            Write-Output "ALREADY_EXISTS"
+            exit 0
+        }
+        
+        # Add the printer
+        try {
+            Add-Printer -ConnectionName $printerPath -ErrorAction Stop
+            Write-Output "INSTALLED"
+            exit 0
+        } catch {
+            Write-Output "ERROR: $($_.Exception.Message)"
+            exit 1
+        }
       loop: "{{ printers_to_install }}"
       register: printer_install_results
+      changed_when: "'INSTALLED' in item.stdout"
+      failed_when: "'ERROR' in item.stdout"
 
     - name: Generate installation summary
       set_fact:
@@ -117,14 +108,16 @@
           INSTALLATION SUMMARY
           ============================================
           Host: {{ inventory_hostname }}
-          Print Spooler: {{ 'Running ✓' if spooler_result.state == 'started' else 'Issue ✗' }}
+          Print Spooler: {{ 'Running [OK]' if spooler_result.state == 'started' else 'Issue [ERROR]' }}
           
           Printer Installation Results:
           {% for result in printer_install_results.results %}
-          {% if result.changed %}
-          ✓ {{ result.item.name }}: Newly Installed
+          {% if 'INSTALLED' in result.stdout %}
+          [+] {{ result.item.name }}: Newly Installed
+          {% elif 'ALREADY_EXISTS' in result.stdout %}
+          [=] {{ result.item.name }}: Already Present
           {% else %}
-          ℹ {{ result.item.name }}: Already Present
+          [!] {{ result.item.name }}: Check logs for details
           {% endif %}
           {% endfor %}
           ============================================
@@ -132,16 +125,3 @@
     - name: Display installation summary
       debug:
         msg: "{{ installation_summary }}"
-
-    - name: Create installation report (optional)
-      copy:
-        content: |
-          Printer Installation Report
-          Generated: {{ ansible_date_time.iso8601 }}
-          Host: {{ inventory_hostname }}
-          User: {{ ansible_user_id | default('N/A') }}
-          
-          {{ installation_summary }}
-        dest: "/tmp/printer_install_{{ inventory_hostname }}_{{ ansible_date_time.epoch }}.txt"
-      delegate_to: localhost
-      when: false  # Set to true if you want to generate reports
