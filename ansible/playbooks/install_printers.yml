@@ -1,7 +1,7 @@
 ---
 # Ansible Playbook for Semaphore UI with Enum Survey
 # Compatible with older Ansible versions
-# Using raw string literals to handle UNC paths correctly
+# Using PowerShell verbatim strings for UNC paths
 
 - name: Install Shared Printers on Windows Desktops
   hosts: windows-desktops
@@ -13,11 +13,13 @@
     printer_definitions:
       MRK-K0-BT-Konica-224-Color:
         name: "MRK-K0-BT-Konica-224-Color"
-        share_path: "\\\\{{ print_server }}\\MRK-K0-BT-Konica-224-Color"
+        server: "HVTRM-WS-PRNT.caliksoa.local"
+        share: "MRK-K0-BT-Konica-224-Color"
         description: "Konica 224 Color Printer - Basement"
       MRK-K1-Vize-Konica-C301-Color:
         name: "MRK-K1-Vize-Konica-C301-Color"
-        share_path: "\\\\{{ print_server }}\\MRK-K1-Vize-Konica-C301-Color"
+        server: "HVTRM-WS-PRNT.caliksoa.local"
+        share: "MRK-K1-Vize-Konica-C301-Color"
         description: "Konica C301 Color Printer - Floor 1"
 
     printers_to_install: []
@@ -66,7 +68,8 @@
           {% for printer in printers_to_install_objects | default([]) %}
           + {{ printer.name }}
             Location: {{ printer.description }}
-            Path: {{ printer.share_path }}
+            Server: {{ printer.server }}
+            Share: {{ printer.share }}
           {% endfor %}
           ============================================
 
@@ -82,22 +85,28 @@
         msg: "Print Spooler service is {{ spooler_result.state }}"
 
     - name: Install selected printers using PowerShell
-      ansible.windows.win_shell: >-
-        $printerName = "{{ item.name }}";
-        $printerPath = "{{ item.share_path | replace('\\', '\\\\') }}";
-        Write-Output "Attempting to add printer: $printerName from $printerPath";
-        $existingPrinter = Get-Printer -Name $printerName -ErrorAction SilentlyContinue;
+      ansible.windows.win_shell: |
+        $printerName = "{{ item.name }}"
+        $printerServer = "{{ item.server }}"
+        $printerShare = "{{ item.share }}"
+        $printerPath = "\\$printerServer\$printerShare"
+        
+        Write-Output "Attempting to add printer: $printerName from $printerPath"
+        
+        $existingPrinter = Get-Printer -Name $printerName -ErrorAction SilentlyContinue
+        
         if ($existingPrinter) {
-          Write-Output "ALREADY_EXISTS";
-          exit 0;
-        };
+            Write-Output "ALREADY_EXISTS"
+            exit 0
+        }
+        
         try {
-          Add-Printer -ConnectionName $printerPath -ErrorAction Stop;
-          Write-Output "INSTALLED";
-          exit 0;
+            Add-Printer -ConnectionName $printerPath -ErrorAction Stop
+            Write-Output "INSTALLED"
+            exit 0
         } catch {
-          Write-Output "ERROR: $($_.Exception.Message)";
-          exit 1;
+            Write-Output "ERROR: $($_.Exception.Message)"
+            exit 1
         }
       loop: "{{ printers_to_install_objects | default([]) }}"
       register: printer_install_results
