@@ -1,6 +1,7 @@
 ---
 # Ansible Playbook for Semaphore UI with Enum Survey
-# Compatible with old Ansible versions
+# Compatible with older Ansible versions
+# Fixed PowerShell UNC path escaping using single quotes
 
 - name: Install Shared Printers on Windows Desktops
   hosts: windows-desktops
@@ -82,17 +83,20 @@
 
     - name: Install selected printers using PowerShell
       ansible.windows.win_shell: |
-        $printerName = "{{ item.name }}"
-        $printerPath = "{{ item.share_path }}"
-        
+        $printerName = '{{ item.name }}'
+        $printerPath = '{{ item.share_path }}'
+
+        # Debug: Show what path we're using
+        Write-Output "Attempting to add printer: $printerName from $printerPath"
+
         # Check if printer already exists
         $existingPrinter = Get-Printer -Name $printerName -ErrorAction SilentlyContinue
-        
+
         if ($existingPrinter) {
             Write-Output "ALREADY_EXISTS"
             exit 0
         }
-        
+
         # Add the printer
         try {
             Add-Printer -ConnectionName $printerPath -ErrorAction Stop
