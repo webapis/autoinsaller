@@ -1,6 +1,6 @@
 ---
 # Ansible Playbook for Semaphore UI with Enum Survey
-# This version handles different possible variable names from Semaphore
+# Updated to use clean survey variable: printers_to_install
 
 - name: Install Shared Printers on Windows Desktops
   hosts: windows-desktops
@@ -20,34 +20,17 @@
         share_path: "\\\\{{ print_server }}\\MRK-K1-Vize-Konica-C301-Color"
         description: "Konica C301 Color Printer - Floor 1"
 
-    # Default empty - will be populated by survey
-    printers_to_install_names: []
-    
-    # Alternative variable names that Semaphore might use
-    printer_selection: []
-    selected_printers: []
-    printers: []
+    # This will be populated by the Semaphore survey variable
+    printers_to_install: []
 
   tasks:
-    - name: Debug - Show all possible survey variables
+    - name: Debug survey input (printers_to_install)
       debug:
-        msg:
-          - "printers_to_install_names: {{ printers_to_install_names | default([]) }}"
-          - "printer_selection: {{ printer_selection | default([]) }}"
-          - "selected_printers: {{ selected_printers | default([]) }}"
-          - "printers: {{ printers | default([]) }}"
-          - "All vars: {{ vars.keys() | select('match', '.*printer.*') | list }}"
+        var: printers_to_install
 
-    - name: Determine which variable contains the selection
+    - name: Determine selected printers
       set_fact:
-        selected_printer_names: >-
-          {{
-            printers_to_install_names if (printers_to_install_names | default([]) | length > 0)
-            else (printer_selection if (printer_selection | default([]) | length > 0)
-            else (selected_printers if (selected_printers | default([]) | length > 0)
-            else (printers if (printers | default([]) | length > 0)
-            else [])))
-          }}
+        selected_printer_names: "{{ printers_to_install | default([]) }}"
 
     - name: Display what we received
       debug:
@@ -58,26 +41,20 @@
         msg: |
           No printers selected from survey!
           
-          Please select at least one printer from the dropdown in Semaphore.
-          
-          Debug info - none of these variables contained data:
-          - printers_to_install_names: {{ printers_to_install_names | default([]) }}
-          - printer_selection: {{ printer_selection | default([]) }}
-          - selected_printers: {{ selected_printers | default([]) }}
-          - printers: {{ printers | default([]) }}
+          Please select at least one printer in Semaphore.
       when: selected_printer_names | length == 0
 
     - name: Build full printer objects from selected names
       set_fact:
-        printers_to_install: "{{ printers_to_install | default([]) + [printer_definitions[item]] }}"
+        printers_to_install_objects: "{{ printers_to_install_objects | default([]) + [printer_definitions[item]] }}"
       loop: "{{ selected_printer_names }}"
-      when: item in printer_definitions.keys()
+      when: item in printer_definitions
 
     - name: Warn about invalid printer names
       debug:
         msg: "WARNING: '{{ item }}' is not a valid printer name and will be skipped"
       loop: "{{ selected_printer_names }}"
-      when: item not in printer_definitions.keys()
+      when: item not in printer_definitions
 
     - name: Display installation plan
       debug:
@@ -86,7 +63,7 @@
           Installation Plan for: {{ inventory_hostname }}
           ============================================
           Printers to install:
-          {% for printer in printers_to_install %}
+          {% for printer in printers_to_install_objects %}
           + {{ printer.name }}
             Location: {{ printer.description }}
             Path: {{ printer.share_path }}
@@ -126,7 +103,7 @@
             Write-Output "ERROR: $($_.Exception.Message)"
             exit 1
         }
-      loop: "{{ printers_to_install }}"
+      loop: "{{ printers_to_install_objects }}"
       register: printer_install_results
       changed_when: "'INSTALLED' in item.stdout"
       failed_when: "'ERROR' in item.stdout"
