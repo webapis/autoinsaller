@@ -1,7 +1,7 @@
 ---
 # Ansible Playbook for Semaphore UI with Enum Survey
 # Compatible with older Ansible versions
-# Fixed Jinja parsing issue by using args parameter
+# Using set_fact to avoid Jinja2 parsing issues
 
 - name: Install Shared Printers on Windows Desktops
   hosts: windows-desktops
@@ -82,33 +82,27 @@
         msg: "Print Spooler service is {{ spooler_result.state }}"
 
     - name: Install selected printers using PowerShell
-      ansible.windows.win_shell: |
-        param($printerName, $printerPath)
-        
-        Write-Output "Attempting to add printer: $printerName from $printerPath"
-        
-        $existingPrinter = Get-Printer -Name $printerName -ErrorAction SilentlyContinue
-        
+      ansible.windows.win_shell: >-
+        $printerName = '{{ item.name }}';
+        $printerPath = '{{ item.share_path }}';
+        Write-Output "Attempting to add printer: $printerName from $printerPath";
+        $existingPrinter = Get-Printer -Name $printerName -ErrorAction SilentlyContinue;
         if ($existingPrinter) {
-            Write-Output "ALREADY_EXISTS"
-            exit 0
-        }
-        
+          Write-Output "ALREADY_EXISTS";
+          exit 0;
+        };
         try {
-            Add-Printer -ConnectionName $printerPath -ErrorAction Stop
-            Write-Output "INSTALLED"
-            exit 0
+          Add-Printer -ConnectionName $printerPath -ErrorAction Stop;
+          Write-Output "INSTALLED";
+          exit 0;
         } catch {
-            Write-Output "ERROR: $($_.Exception.Message)"
-            exit 1
+          Write-Output "ERROR: $($_.Exception.Message)";
+          exit 1;
         }
-      args:
-        printerName: "{{ item.name }}"
-        printerPath: "{{ item.share_path }}"
       loop: "{{ printers_to_install_objects | default([]) }}"
       register: printer_install_results
-      changed_when: "'INSTALLED' in item.stdout"
-      failed_when: "'ERROR' in item.stdout"
+      changed_when: "'INSTALLED' in printer_install_results.stdout"
+      failed_when: "'ERROR' in printer_install_results.stdout"
 
     - name: Generate installation summary
       set_fact:
