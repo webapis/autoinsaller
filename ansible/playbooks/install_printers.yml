@@ -1,6 +1,6 @@
 ---
 # Ansible Playbook for Semaphore UI with Enum Survey
-# Updated to use clean survey variable: printers_to_install
+# Handles single-value string from Semaphore Enum survey
 
 - name: Install Shared Printers on Windows Desktops
   hosts: windows-desktops
@@ -9,7 +9,6 @@
   vars:
     print_server: "HVTRM-WS-PRNT.caliksoa.local"
 
-    # Printer definitions - Add new printers here
     printer_definitions:
       MRK-K0-BT-Konica-224-Color:
         name: "MRK-K0-BT-Konica-224-Color"
@@ -20,21 +19,25 @@
         share_path: "\\\\{{ print_server }}\\MRK-K1-Vize-Konica-C301-Color"
         description: "Konica C301 Color Printer - Floor 1"
 
-    # This will be populated by the Semaphore survey variable
     printers_to_install: []
 
   tasks:
-    - name: Debug survey input (printers_to_install)
+    - name: Debug raw survey input
       debug:
         var: printers_to_install
 
-    - name: Determine selected printers
+    - name: Normalize survey input to always be a list
       set_fact:
-        selected_printer_names: "{{ printers_to_install | default([]) }}"
+        selected_printer_names: >-
+          {{ printers_to_install | default([]) 
+             if printers_to_install is list 
+             else [printers_to_install] 
+             if printers_to_install is string 
+             else [] }}
 
-    - name: Display what we received
+    - name: Display normalized selection
       debug:
-        msg: "Received printer selection: {{ selected_printer_names }}"
+        msg: "Normalized printer selection: {{ selected_printer_names }}"
 
     - name: Validate that printers were selected
       fail:
