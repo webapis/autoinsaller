@@ -1,7 +1,6 @@
 ---
 # Ansible Playbook for Semaphore UI with Enum Survey
-# Compatible with older Ansible versions
-# Added network connectivity test and better diagnostics
+# Diagnostic version to discover available printer shares
 
 - name: Install Shared Printers on Windows Desktops
   hosts: windows-desktops
@@ -73,21 +72,58 @@
           {% endfor %}
           ============================================
 
-    - name: Test connectivity to print server
+    - name: Discover available printer shares on server
       ansible.windows.win_shell: |
         $server = "{{ print_server }}"
-        $result = Test-Connection -ComputerName $server -Count 1 -Quiet
-        if ($result) {
-            Write-Output "REACHABLE"
-        } else {
-            Write-Output "UNREACHABLE"
+        
+        Write-Output "=== Discovering Printer Shares on $server ==="
+        
+        # Method 1: Try to list network shares
+        try {
+            $shares = Get-WmiObject -Class Win32_Share -ComputerName $server -Filter "Type=0" | Where-Object { $_.Name -like "*print*" -or $_.Name -like "*MRK*" }
+            if ($shares) {
+                Write-Output "Found shares (WMI):"
+                foreach ($share in $shares) {
+                    Write-Output "  - $($share.Name) : $($share.Path)"
+                }
+            } else {
+                Write-Output "No printer-related shares found via WMI"
+            }
+        } catch {
+            Write-Output "WMI query failed: $($_.Exception.Message)"
         }
-      register: server_connectivity
+        
+        # Method 2: Try to enumerate printers using CIM
+        try {
+            Write-Output ""
+            Write-Output "Attempting to list printers via Get-Printer:"
+            $printers = Get-Printer -ComputerName $server -ErrorAction Stop
+            Write-Output "Found $($printers.Count) printer(s):"
+            foreach ($printer in $printers) {
+                Write-Output "  - Name: $($printer.Name)"
+                Write-Output "    ShareName: $($printer.ShareName)"
+                Write-Output "    Shared: $($printer.Shared)"
+            }
+        } catch {
+            Write-Output "Get-Printer failed: $($_.Exception.Message)"
+        }
+        
+        # Method 3: Try net view
+        try {
+            Write-Output ""
+            Write-Output "Attempting net view:"
+            $netView = net view "\\$server" 2>&1
+            Write-Output $netView
+        } catch {
+            Write-Output "Net view failed: $($_.Exception.Message)"
+        }
+      register: printer_discovery
       changed_when: false
+      failed_when: false
 
-    - name: Display connectivity status
+    - name: Display discovered printers
       debug:
-        msg: "Print server {{ print_server }} is {{ 'REACHABLE' if 'REACHABLE' in server_connectivity.stdout else 'UNREACHABLE' }}"
+        var: printer_discovery.stdout_lines
 
     - name: Ensure Print Spooler service is running
       ansible.windows.win_service:
@@ -118,14 +154,6 @@
             exit 0
         }
         
-        # Try to list available printers on the server to verify connectivity
-        try {
-            $availablePrinters = Get-Printer -ComputerName $printerServer -ErrorAction Stop
-            Write-Output "Found $($availablePrinters.Count) printers on server"
-        } catch {
-            Write-Output "WARNING: Cannot list printers on server: $($_.Exception.Message)"
-        }
-        
         # Attempt to add the printer
         try {
             Add-Printer -ConnectionName $printerPath -ErrorAction Stop
@@ -133,13 +161,24 @@
             exit 0
         } catch {
             Write-Output "ERROR: $($_.Exception.Message)"
-            Write-Output "ERROR_DETAIL: Failed to connect to $printerPath"
-            exit 1
+            
+            # Try alternate method with explicit port
+            Write-Output "Attempting alternate installation method..."
+            try {
+                # Try using the printer name directly as connection
+                $altPath = "\\$printerServer\$printerName"
+                Add-Printer -ConnectionName $altPath -ErrorAction Stop
+                Write-Output "INSTALLED_ALT"
+                exit 0
+            } catch {
+                Write-Output "ERROR_ALT: $($_.Exception.Message)"
+                exit 1
+            }
         }
       loop: "{{ printers_to_install_objects | default([]) }}"
       register: printer_install_results
       changed_when: "'INSTALLED' in printer_install_results.stdout"
-      failed_when: "'ERROR:' in printer_install_results.stdout"
+      failed_when: "'ERROR_ALT:' in printer_install_results.stdout and 'INSTALLED' not in printer_install_results.stdout"
 
     - name: Generate installation summary
       set_fact:
@@ -148,17 +187,17 @@
           INSTALLATION SUMMARY
           ============================================
           Host: {{ inventory_hostname }}
-          Print Server: {{ print_server }} [{{ 'REACHABLE' if 'REACHABLE' in server_connectivity.stdout else 'UNREACHABLE' }}]
+          Print Server: {{ print_server }}
           Print Spooler: {{ 'Running [OK]' if spooler_result.state == 'started' else 'Issue [ERROR]' }}
           
           Printer Installation Results:
           {% for result in printer_install_results.results %}
           {% if 'INSTALLED' in result.stdout %}
-          [+] {{ result.item.name }}: Newly Installed
+          [+] {{ result.item.name }}: Successfully Installed
           {% elif 'ALREADY_EXISTS' in result.stdout %}
           [=] {{ result.item.name }}: Already Present
           {% else %}
-          [!] {{ result.item.name }}: Failed - Check details below
+          [!] {{ result.item.name }}: Failed - See details below
           {% endif %}
           {% endfor %}
           
