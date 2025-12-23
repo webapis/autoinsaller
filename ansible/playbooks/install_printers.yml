@@ -1,6 +1,6 @@
 ---
 # Ansible Playbook for Semaphore UI with Enum Survey
-# Handles single-value string from Semaphore Enum survey
+# Handles single-value string from Semaphore Enum survey (compatible with older Ansible)
 
 - name: Install Shared Printers on Windows Desktops
   hosts: windows-desktops
@@ -29,11 +29,13 @@
     - name: Normalize survey input to always be a list
       set_fact:
         selected_printer_names: >-
-          {{ printers_to_install | default([]) 
-             if printers_to_install is list 
-             else [printers_to_install] 
-             if printers_to_install is string 
-             else [] }}
+          {{
+            printers_to_install | default([])
+            if printers_to_install is_list
+            else [printers_to_install]
+            if printers_to_install is string
+            else []
+          }}
 
     - name: Display normalized selection
       debug:
