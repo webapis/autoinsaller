@@ -1,6 +1,6 @@
 ---
 # Ansible Playbook for Semaphore UI with Enum Survey
-# Compatible with older Ansible versions (no 'is_list' or 'is string' tests)
+# Compatible with old Ansible versions
 
 - name: Install Shared Printers on Windows Desktops
   hosts: windows-desktops
@@ -28,7 +28,8 @@
 
     - name: Normalize survey input to always be a list
       set_fact:
-        selected_printer_names: "{{ printers_to_install | default([]) | list }}"
+        selected_printer_names: >-
+          {{ [printers_to_install] if printers_to_install | length > 0 else [] }}
 
     - name: Display normalized selection
       debug:
@@ -46,13 +47,13 @@
       set_fact:
         printers_to_install_objects: "{{ printers_to_install_objects | default([]) + [printer_definitions[item]] }}"
       loop: "{{ selected_printer_names }}"
-      when: item in printer_definitions
+      when: item in printer_definitions.keys()
 
     - name: Warn about invalid printer names
       debug:
         msg: "WARNING: '{{ item }}' is not a valid printer name and will be skipped"
       loop: "{{ selected_printer_names }}"
-      when: item not in printer_definitions
+      when: item not in printer_definitions.keys()
 
     - name: Display installation plan
       debug:
@@ -61,7 +62,7 @@
           Installation Plan for: {{ inventory_hostname }}
           ============================================
           Printers to install:
-          {% for printer in printers_to_install_objects %}
+          {% for printer in printers_to_install_objects | default([]) %}
           + {{ printer.name }}
             Location: {{ printer.description }}
             Path: {{ printer.share_path }}
@@ -101,7 +102,7 @@
             Write-Output "ERROR: $($_.Exception.Message)"
             exit 1
         }
-      loop: "{{ printers_to_install_objects }}"
+      loop: "{{ printers_to_install_objects | default([]) }}"
       register: printer_install_results
       changed_when: "'INSTALLED' in item.stdout"
       failed_when: "'ERROR' in item.stdout"
