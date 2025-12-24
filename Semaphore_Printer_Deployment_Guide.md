@@ -82,7 +82,7 @@ Create the playbook `ansible/playbooks/install-printer.yml`.
     - name: Add Printer Globally
       # /ga = Global Add (per-machine connection)
       # /n = Printer Name
-      win_command: 'rundll32 printui.dll,PrintUIEntry /ga /n\\{{ print_server }}\{{ printer_name | replace("[", "") | replace("]", "") | replace("\"", "") }} /q'
+      win_command: 'rundll32 printui.dll,PrintUIEntry /ga /n"\\{{ print_server }}\{{ printer_name | replace("[", "") | replace("]", "") | replace("\"", "") }}" /q'
 
     - name: Restart Spooler Service (Finalize Install)
       # Required for Global Add changes to take effect
@@ -95,7 +95,13 @@ Create the playbook `ansible/playbooks/install-printer.yml`.
         $printerName = "{{ printer_name | replace('[', '') | replace(']', '') | replace('"', '') }}"
         $fullPath = "\\{{ print_server }}\$printerName"
         if (-not (Get-Printer -Name $fullPath -ErrorAction SilentlyContinue)) {
-            Write-Error "Printer '$fullPath' was not found after installation attempt."
+            # Attempt to add via PowerShell to capture the specific error message
+            try {
+                Add-Printer -ConnectionName $fullPath -ErrorAction Stop
+                Write-Warning "Printer was added via PowerShell (Per-User) because Global Add failed silently."
+            } catch {
+                Write-Error "Printer installation failed. Error: $($_.Exception.Message)"
+            }
         }
 
     - name: Remove Authentication
