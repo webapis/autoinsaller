@@ -38,7 +38,7 @@
     - name: Add Printer Globally
       # /ga = Global Add (per-machine connection)
       # /n = Printer Name
-      win_command: 'rundll32 printui.dll,PrintUIEntry /ga /n\\{{ print_server }}\{{ printer_name | regex_replace("[\[\]\"]", "") }} /q'
+      win_command: 'rundll32 printui.dll,PrintUIEntry /ga /n\\{{ print_server }}\{{ printer_name | replace("[", "") | replace("]", "") | replace("\"", "") }} /q'
 
     - name: Restart Spooler Service (Finalize Install)
       # Required for Global Add changes to take effect
@@ -48,7 +48,7 @@
 
     - name: Verify Printer Installation
       win_shell: |
-        $printerName = "{{ printer_name | regex_replace("[\[\]\"]", "") }}"
+        $printerName = "{{ printer_name | replace('[', '') | replace(']', '') | replace('"', '') }}"
         $fullPath = "\\{{ print_server }}\$printerName"
         if (-not (Get-Printer -Name $fullPath -ErrorAction SilentlyContinue)) {
             Write-Error "Printer '$fullPath' was not found after installation attempt."
