@@ -63,6 +63,13 @@ Create the playbook `ansible/playbooks/install-printer.yml`.
     share_password: "DeployUserPassword"
 
   tasks:
+    - name: Configure Point and Print Policies (Prevent Driver Prompts)
+      win_shell: |
+        $p = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Printers\PointAndPrint"
+        if (!(Test-Path $p)) { New-Item -Path $p -Force | Out-Null }
+        Set-ItemProperty -Path $p -Name "RestrictDriverInstallationToAdministrators" -Value 0 -Type DWord -Force
+        Set-ItemProperty -Path $p -Name "UpdatePromptSettings" -Value 2 -Type DWord -Force
+
     - name: Authenticate to Print Server (IPC$)
       # We map the IPC$ share to establish a valid Kerberos/NTLM session with the server
       win_command: 'net use \\{{ print_server }}\IPC$ /user:{{ share_user }} {{ share_password }}'
