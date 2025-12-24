@@ -70,6 +70,11 @@ Create the playbook `ansible/playbooks/install-printer.yml`.
         Set-ItemProperty -Path $p -Name "RestrictDriverInstallationToAdministrators" -Value 0 -Type DWord -Force
         Set-ItemProperty -Path $p -Name "UpdatePromptSettings" -Value 2 -Type DWord -Force
 
+    - name: Restart Spooler Service (Apply Policies)
+      win_service:
+        name: Spooler
+        state: restarted
+
     - name: Authenticate to Print Server (IPC$)
       # We map the IPC$ share to establish a valid Kerberos/NTLM session with the server
       win_command: 'net use \\{{ print_server }}\IPC$ /user:{{ share_user }} {{ share_password }}'
@@ -79,11 +84,17 @@ Create the playbook `ansible/playbooks/install-printer.yml`.
       # /n = Printer Name
       win_command: 'rundll32 printui.dll,PrintUIEntry /ga /n\\{{ print_server }}\{{ printer_name }} /q'
 
-    - name: Restart Spooler Service
+    - name: Restart Spooler Service (Finalize Install)
       # Required for Global Add changes to take effect
       win_service:
         name: Spooler
         state: restarted
+
+    - name: Verify Printer Installation
+      win_shell: |
+        if (-not (Get-Printer -Name "\\{{ print_server }}\{{ printer_name }}" -ErrorAction SilentlyContinue)) {
+            Write-Error "Printer was not found after installation attempt."
+        }
 
     - name: Remove Authentication
       win_command: 'net use \\{{ print_server }}\IPC$ /delete'
