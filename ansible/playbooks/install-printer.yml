@@ -19,6 +19,11 @@
     share_password: "Gaptrm3050+"
 
   tasks:
+    - name: Sanitize Printer Name
+      set_fact:
+        # Removes brackets and quotes if they are passed from the Semaphore Survey
+        clean_printer_name: "{{ printer_name | replace('[', '') | replace(']', '') | replace('\"', '') }}"
+
     - name: Configure Point and Print Policies (Prevent Driver Prompts)
       win_shell: |
         $p = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Printers\PointAndPrint"
@@ -38,7 +43,7 @@
     - name: Add Printer Globally
       # /ga = Global Add (per-machine connection)
       # /n = Printer Name
-      win_command: 'rundll32 printui.dll,PrintUIEntry /ga /n\\{{ print_server }}\{{ printer_name | replace("[", "") | replace("]", "") | replace("\"", "") }} /q'
+      win_command: 'rundll32 printui.dll,PrintUIEntry /ga /n\\{{ print_server }}\{{ clean_printer_name }} /q'
 
     - name: Restart Spooler Service (Finalize Install)
       # Required for Global Add changes to take effect
@@ -48,7 +53,7 @@
 
     - name: Verify Printer Installation
       win_shell: |
-        $printerName = "{{ printer_name | replace('[', '') | replace(']', '') | replace('"', '') }}"
+        $printerName = "{{ clean_printer_name }}"
         $fullPath = "\\{{ print_server }}\$printerName"
         if (-not (Get-Printer -Name $fullPath -ErrorAction SilentlyContinue)) {
             Write-Error "Printer '$fullPath' was not found after installation attempt."
