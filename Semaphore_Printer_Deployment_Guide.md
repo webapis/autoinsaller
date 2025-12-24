@@ -70,7 +70,7 @@ Create the playbook `ansible/playbooks/install-printer.yml`.
     - name: Add Printer Globally
       # /ga = Global Add (per-machine connection)
       # /n = Printer Name
-      win_command: 'rundll32 printui.dll,PrintUIEntry /ga /n\\{{ print_server }}\{{ printer_name }}'
+      win_command: 'rundll32 printui.dll,PrintUIEntry /ga /n\\{{ print_server }}\{{ printer_name }} /q'
 
     - name: Restart Spooler Service
       # Required for Global Add changes to take effect
