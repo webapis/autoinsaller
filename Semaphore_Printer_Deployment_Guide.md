@@ -91,4 +91,9 @@ To run this playbook in Semaphore:
     *   **Name:** `Deploy Network Printer`
     *   **Playbook Filename:** `ansible/playbooks/install-printer.yml`
     *   **Inventory:** Select your Windows inventory.
-3.  **Survey:** Ensure the Survey is enabled (as defined in Step 2) to capture `target_host`, `target_username`, `target_password`, and `printer_name`.
+3.  **Survey:** Click **Add** to define the following survey variables:
+    *   **Variable:** `target_host` | **Type:** String | **Title:** Target PC IP
+    *   **Variable:** `target_username` | **Type:** String | **Title:** Local Admin User
+    *   **Variable:** `target_password` | **Type:** Password | **Title:** Local Admin Password
+    *   **Variable:** `printer_name` | **Type:** Select | **Title:** Select Printer
+        *   **Options:** `["MRK-K0-BT-Konica-224-Color"]`
