@@ -1,0 +1,39 @@
+---
+# Reference: ..\..\Semaphore_Printer_Deployment_Guide.md
+- name: Deploy Network Printer
+  hosts: "{{ target_host }}"
+  gather_facts: no
+  vars:
+    # Connection variables (populated from Semaphore Survey)
+    ansible_user: "{{ target_username }}"
+    ansible_password: "{{ target_password }}"
+    ansible_connection: winrm
+    ansible_winrm_server_cert_validation: ignore
+    ansible_winrm_transport: ntlm
+
+    # Printer Details
+    print_server: "HVTRM-WS-PRNT.caliksoa.local"
+    # Domain Credentials for Print Server Access
+    # Ideally, pass these via Semaphore Environment/Vault
+    share_user: "caliksoa\\u13589"
+    share_password: "Gaptrm3050+"
+
+  tasks:
+    - name: Authenticate to Print Server (IPC$)
+      # We map the IPC$ share to establish a valid Kerberos/NTLM session with the server
+      win_command: 'net use \\{{ print_server }}\IPC$ /user:{{ share_user }} {{ share_password }}'
+
+    - name: Add Printer Globally
+      # /ga = Global Add (per-machine connection)
+      # /n = Printer Name
+      win_command: 'rundll32 printui.dll,PrintUIEntry /ga /n\\{{ print_server }}\{{ printer_name }}'
+
+    - name: Restart Spooler Service
+      # Required for Global Add changes to take effect
+      win_service:
+        name: Spooler
+        state: restarted
+
+    - name: Remove Authentication
+      win_command: 'net use \\{{ print_server }}\IPC$ /delete'
+      ignore_errors: yes

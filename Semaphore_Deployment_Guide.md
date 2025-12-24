@@ -90,5 +90,5 @@ Create a playbook that uses the runtime credentials for the connection and the s
       win_mapped_drive:
         letter: Z
         state: absent
-      when: always
+```
 ```
