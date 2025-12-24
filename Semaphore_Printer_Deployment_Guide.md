@@ -84,6 +84,10 @@ Create the playbook `ansible/playbooks/install-printer.yml`.
       # /n = Printer Name
       win_command: 'rundll32 printui.dll,PrintUIEntry /ga /n"\\{{ print_server }}\{{ printer_name | replace("[", "") | replace("]", "") | replace("\"", "") }}" /q'
 
+    - name: Wait for Driver Installation
+      # Give the background installation time to complete before restarting spooler
+      win_shell: Start-Sleep -Seconds 15
+
     - name: Restart Spooler Service (Finalize Install)
       # Required for Global Add changes to take effect
       win_service:
