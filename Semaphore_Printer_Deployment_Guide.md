@@ -75,42 +75,40 @@ Create the playbook `ansible/playbooks/install-printer.yml`.
         name: Spooler
         state: restarted
 
-    - name: Authenticate to Print Server (IPC$)
-      # We map the IPC$ share to establish a valid Kerberos/NTLM session with the server
-      win_command: 'net use \\{{ print_server }}\IPC$ /user:{{ share_user }} {{ share_password }}'
-
-    - name: Add Printer Globally
-      # /ga = Global Add (per-machine connection)
-      # /n = Printer Name
-      win_command: 'rundll32 printui.dll,PrintUIEntry /ga /n"\\{{ print_server }}\{{ printer_name | replace("[", "") | replace("]", "") | replace("\"", "") }}" /q'
-
-    - name: Wait for Driver Installation
-      # Give the background installation time to complete before restarting spooler
-      win_shell: Start-Sleep -Seconds 15
-
-    - name: Restart Spooler Service (Finalize Install)
-      # Required for Global Add changes to take effect
-      win_service:
-        name: Spooler
-        state: restarted
-
-    - name: Verify Printer Installation
+    - name: Install Printer (Authenticated Session)
+      # Consolidating Auth, Install, and Verify into one task ensures the session persists
       win_shell: |
-        $printerName = "{{ printer_name | replace('[', '') | replace(']', '') | replace('"', '') }}"
-        $fullPath = "\\{{ print_server }}\$printerName"
-        if (-not (Get-Printer -Name $fullPath -ErrorAction SilentlyContinue)) {
-            # Attempt to add via PowerShell to capture the specific error message
-            try {
-                Add-Printer -ConnectionName $fullPath -ErrorAction Stop
-                Write-Warning "Printer was added via PowerShell (Per-User) because Global Add failed silently."
-            } catch {
-                Write-Error "Printer installation failed. Error: $($_.Exception.Message)"
-            }
-        }
+        $ErrorActionPreference = 'Stop'
+        $server = "{{ print_server }}"
+        $printer = "{{ printer_name | replace('[', '') | replace(']', '') | replace('\"', '') }}"
+        $user = "{{ share_user }}"
+        $pass = "{{ share_password }}"
+        $fullPath = "\\$server\$printer"
 
-    - name: Remove Authentication
-      win_command: 'net use \\{{ print_server }}\IPC$ /delete'
-      ignore_errors: yes
+        try {
+            # 1. Authenticate
+            cmd /c "net use \\$server\IPC$ /user:$user $pass" | Out-Null
+
+            # 2. Install (Global Add)
+            $args = "printui.dll,PrintUIEntry /ga /n`"$fullPath`" /q"
+            Start-Process rundll32.exe -ArgumentList $args
+            Start-Sleep -Seconds 20
+
+            # 3. Restart Spooler
+            Restart-Service Spooler -Force
+            Start-Sleep -Seconds 5
+
+            # 4. Verify and Fallback
+            if (-not (Get-Printer -Name $fullPath -ErrorAction SilentlyContinue)) {
+                Write-Warning "Global Add failed. Attempting PowerShell Add-Printer..."
+                Add-Printer -ConnectionName $fullPath -ErrorAction Stop
+            }
+            Write-Host "Printer installed successfully."
+        }
+        finally {
+            # 5. Cleanup
+            cmd /c "net use \\$server\IPC$ /delete" | Out-Null
+        }
 ```
 
 ### 4. Template Configuration
