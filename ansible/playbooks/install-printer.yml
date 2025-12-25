@@ -48,20 +48,24 @@
 
         try {
             # 1. Authenticate
-            cmd /c "net use \\$server\IPC$ /user:$user $pass" | Out-Null
+            # Use net.exe directly to handle special chars better and capture errors
+            $netArgs = @("use", "\\$server\IPC$", "/user:$user", "$pass")
+            & net.exe $netArgs 2>&1 | Out-Null
 
             # 2. Install (Global Add)
             # /ga is asynchronous, so we launch it and wait
-            $args = "printui.dll,PrintUIEntry /ga /n`"$fullPath`" /q"
-            Start-Process rundll32.exe -ArgumentList $args
-            Start-Sleep -Seconds 20
+            $printArgs = "printui.dll,PrintUIEntry /ga /n`"$fullPath`" /q"
+            Start-Process rundll32.exe -ArgumentList $printArgs
+            Start-Sleep -Seconds 30
 
             # 3. Restart Spooler to register the global printer
             Restart-Service Spooler -Force
-            Start-Sleep -Seconds 5
+            Start-Sleep -Seconds 10
 
             # 4. Verify and Fallback
-            if (-not (Get-Printer -Name $fullPath -ErrorAction SilentlyContinue)) {
+            # Check if printer exists by name (partial match to be safe against FQDN vs NetBIOS differences)
+            $installed = Get-Printer | Where-Object { $_.Name -eq $fullPath -or $_.Name -like "*$printer*" }
+            if (-not $installed) {
                 Write-Warning "Global Add failed or delayed. Attempting PowerShell Add-Printer..."
                 Add-Printer -ConnectionName $fullPath -ErrorAction Stop
             }
@@ -69,5 +73,5 @@
         }
         finally {
             # 5. Cleanup
-            cmd /c "net use \\$server\IPC$ /delete" | Out-Null
+            & net.exe use "\\$server\IPC$" /delete 2>&1 | Out-Null
         }
