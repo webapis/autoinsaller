@@ -48,21 +48,32 @@
 
         try {
             # 1. Authenticate
-            # Use net.exe directly to handle special chars better and capture errors
+            # Use cmdkey to store credentials for RPC/Spooler access (Critical for Add-Printer)
+            & cmdkey /add:$server /user:$user /pass:$pass | Out-Null
+            
+            # Use net use for SMB access (IPC$)
             $netArgs = @("use", "\\$server\IPC$", "/user:$user", "$pass")
             & net.exe $netArgs 2>&1 | Out-Null
 
-            # 2. Install (Global Add)
+            # 2. Pre-check: Verify RPC access by listing remote printers
+            try {
+                Get-Printer -ComputerName $server -ErrorAction Stop | Out-Null
+                Write-Host "Successfully connected to print server RPC."
+            } catch {
+                Write-Warning "Could not list remote printers (RPC check failed). Installation might fail."
+            }
+
+            # 3. Install (Global Add)
             # /ga is asynchronous, so we launch it and wait
             $printArgs = "printui.dll,PrintUIEntry /ga /n`"$fullPath`" /q"
             Start-Process rundll32.exe -ArgumentList $printArgs
-            Start-Sleep -Seconds 30
+            Start-Sleep -Seconds 45
 
-            # 3. Restart Spooler to register the global printer
+            # 4. Restart Spooler to register the global printer
             Restart-Service Spooler -Force
             Start-Sleep -Seconds 10
 
-            # 4. Verify and Fallback
+            # 5. Verify and Fallback
             # Check if printer exists by name (partial match to be safe against FQDN vs NetBIOS differences)
             $installed = Get-Printer | Where-Object { $_.Name -eq $fullPath -or $_.Name -like "*$printer*" }
             if (-not $installed) {
@@ -72,6 +83,7 @@
             Write-Host "Printer installed successfully."
         }
         finally {
-            # 5. Cleanup
+            # 6. Cleanup
             & net.exe use "\\$server\IPC$" /delete 2>&1 | Out-Null
+            & cmdkey /delete:$server 2>&1 | Out-Null
         }

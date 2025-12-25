@@ -87,19 +87,23 @@ Create the playbook `ansible/playbooks/install-printer.yml`.
 
         try {
             # 1. Authenticate
+            & cmdkey /add:$server /user:$user /pass:$pass | Out-Null
             $netArgs = @("use", "\\$server\IPC$", "/user:$user", "$pass")
             & net.exe $netArgs 2>&1 | Out-Null
 
-            # 2. Install (Global Add)
+            # 2. Pre-check RPC
+            try { Get-Printer -ComputerName $server -ErrorAction Stop | Out-Null } catch { Write-Warning "RPC check failed." }
+
+            # 3. Install (Global Add)
             $printArgs = "printui.dll,PrintUIEntry /ga /n`"$fullPath`" /q"
             Start-Process rundll32.exe -ArgumentList $printArgs
-            Start-Sleep -Seconds 30
+            Start-Sleep -Seconds 45
 
-            # 3. Restart Spooler
+            # 4. Restart Spooler
             Restart-Service Spooler -Force
             Start-Sleep -Seconds 10
 
-            # 4. Verify and Fallback
+            # 5. Verify and Fallback
             $installed = Get-Printer | Where-Object { $_.Name -eq $fullPath -or $_.Name -like "*$printer*" }
             if (-not $installed) {
                 Write-Warning "Global Add verification failed. Attempting PowerShell Add-Printer..."
@@ -108,8 +112,9 @@ Create the playbook `ansible/playbooks/install-printer.yml`.
             Write-Host "Printer installed successfully."
         }
         finally {
-            # 5. Cleanup
+            # 6. Cleanup
             & net.exe use "\\$server\IPC$" /delete 2>&1 | Out-Null
+            & cmdkey /delete:$server 2>&1 | Out-Null
         }
 ```
 
