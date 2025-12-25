@@ -90,6 +90,8 @@ Create the playbook `ansible/playbooks/install-printer.yml`.
             & cmdkey /add:$server /user:$user /pass:$pass | Out-Null
             $netArgs = @("use", "\\$server\IPC$", "/user:$user", "$pass")
             & net.exe $netArgs 2>&1 | Out-Null
+            $netArgsPrint = @("use", "\\$server\print$", "/user:$user", "$pass")
+            & net.exe $netArgsPrint 2>&1 | Out-Null
 
             # 2. Pre-check RPC
             try { Get-Printer -ComputerName $server -ErrorAction Stop | Out-Null } catch { Write-Warning "RPC check failed." }
@@ -115,9 +117,14 @@ Create the playbook `ansible/playbooks/install-printer.yml`.
                 try {
                     Add-Printer -ConnectionName $fullPath -ErrorAction Stop
                 } catch {
-                    if ($serverIP) {
-                        Add-Printer -ConnectionName "\\$serverIP\$printer" -ErrorAction Stop
-                    } else { throw $_ }
+                    try {
+                        # Try COM Object
+                        (New-Object -ComObject WScript.Network).AddWindowsPrinterConnection($fullPath)
+                    } catch {
+                        if ($serverIP) {
+                            Add-Printer -ConnectionName "\\$serverIP\$printer" -ErrorAction Stop
+                        } else { throw $_ }
+                    }
                 }
             }
             Write-Host "Printer installed successfully."
@@ -125,6 +132,7 @@ Create the playbook `ansible/playbooks/install-printer.yml`.
         finally {
             # 6. Cleanup
             & net.exe use "\\$server\IPC$" /delete 2>&1 | Out-Null
+            & net.exe use "\\$server\print$" /delete 2>&1 | Out-Null
             & cmdkey /delete:$server 2>&1 | Out-Null
             & cmdkey /delete:$shortServer 2>&1 | Out-Null
             if ($serverIP) { & cmdkey /delete:$serverIP 2>&1 | Out-Null }

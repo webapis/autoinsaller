@@ -61,6 +61,9 @@
             # Use net use for SMB access (IPC$)
             $netArgs = @("use", "\\$server\IPC$", "/user:$user", "$pass")
             & net.exe $netArgs 2>&1 | Out-Null
+            # Map print$ share to ensure driver access is authenticated
+            $netArgsPrint = @("use", "\\$server\print$", "/user:$user", "$pass")
+            & net.exe $netArgsPrint 2>&1 | Out-Null
 
             # 2. Pre-check: Verify RPC access by listing remote printers
             try {
@@ -96,12 +99,19 @@
                     Add-Printer -ConnectionName $fullPath -ErrorAction Stop
                 } catch {
                     Write-Warning "FQDN Add-Printer failed: $($_.Exception.Message)"
-                    if ($serverIP) {
-                        $ipPath = "\\$serverIP\$printer"
-                        Write-Host "Trying IP-based path: $ipPath"
-                        Add-Printer -ConnectionName $ipPath -ErrorAction Stop
-                    } else {
-                        throw $_
+                    
+                    # Try COM Object as intermediate fallback (often works better for auth)
+                    try {
+                        Write-Host "Attempting WScript.Network COM object..."
+                        (New-Object -ComObject WScript.Network).AddWindowsPrinterConnection($fullPath)
+                    } catch {
+                        if ($serverIP) {
+                            $ipPath = "\\$serverIP\$printer"
+                            Write-Host "Trying IP-based path: $ipPath"
+                            Add-Printer -ConnectionName $ipPath -ErrorAction Stop
+                        } else {
+                            throw $_
+                        }
                     }
                 }
             }
@@ -110,6 +120,7 @@
         finally {
             # 6. Cleanup
             & net.exe use "\\$server\IPC$" /delete 2>&1 | Out-Null
+            & net.exe use "\\$server\print$" /delete 2>&1 | Out-Null
             & cmdkey /delete:$server 2>&1 | Out-Null
             & cmdkey /delete:$shortServer 2>&1 | Out-Null
             if ($serverIP) { & cmdkey /delete:$serverIP 2>&1 | Out-Null }
