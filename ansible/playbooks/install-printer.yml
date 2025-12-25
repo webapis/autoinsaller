@@ -31,6 +31,7 @@
         if (!(Test-Path $p)) { New-Item -Path $p -Force | Out-Null }
         Set-ItemProperty -Path $p -Name "RestrictDriverInstallationToAdministrators" -Value 0 -Type DWord -Force
         Set-ItemProperty -Path $p -Name "UpdatePromptSettings" -Value 2 -Type DWord -Force
+        Set-ItemProperty -Path $p -Name "NoWarningNoElevationOnInstall" -Value 1 -Type DWord -Force
 
     - name: Restart Spooler Service (Apply Policies)
       win_service:
@@ -65,10 +66,22 @@
             $netArgsPrint = @("use", "\\$server\print$", "/user:$user", "$pass")
             & net.exe $netArgsPrint 2>&1 | Out-Null
 
-            # 2. Pre-check: Verify RPC access by listing remote printers
+            # 2. Pre-check & Resolve Share Name
             try {
-                Get-Printer -ComputerName $server -ErrorAction Stop | Out-Null
+                $remotePrinters = Get-Printer -ComputerName $server -ErrorAction Stop
                 Write-Host "Successfully connected to print server RPC."
+                
+                # Find the printer by Name or ShareName and get the correct ShareName
+                $targetPrinter = $remotePrinters | Where-Object { $_.Name -eq $printer -or $_.ShareName -eq $printer } | Select-Object -First 1
+                
+                if ($targetPrinter) {
+                    $printer = $targetPrinter.ShareName
+                    $fullPath = "\\$server\$printer"
+                    Write-Host "Resolved Printer Share Name: $printer"
+                    Write-Host "Target Path: $fullPath"
+                } else {
+                    Write-Warning "Printer '$printer' not found in remote list. Using provided name."
+                }
             } catch {
                 Write-Warning "Could not list remote printers (RPC check failed). Installation might fail."
             }
@@ -105,6 +118,7 @@
                         Write-Host "Attempting WScript.Network COM object..."
                         (New-Object -ComObject WScript.Network).AddWindowsPrinterConnection($fullPath)
                     } catch {
+                        Write-Warning "COM Object failed: $($_.Exception.Message)"
                         if ($serverIP) {
                             $ipPath = "\\$serverIP\$printer"
                             Write-Host "Trying IP-based path: $ipPath"

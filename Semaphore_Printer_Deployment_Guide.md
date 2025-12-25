@@ -69,6 +69,7 @@ Create the playbook `ansible/playbooks/install-printer.yml`.
         if (!(Test-Path $p)) { New-Item -Path $p -Force | Out-Null }
         Set-ItemProperty -Path $p -Name "RestrictDriverInstallationToAdministrators" -Value 0 -Type DWord -Force
         Set-ItemProperty -Path $p -Name "UpdatePromptSettings" -Value 2 -Type DWord -Force
+        Set-ItemProperty -Path $p -Name "NoWarningNoElevationOnInstall" -Value 1 -Type DWord -Force
 
     - name: Restart Spooler Service (Apply Policies)
       win_service:
@@ -94,7 +95,15 @@ Create the playbook `ansible/playbooks/install-printer.yml`.
             & net.exe $netArgsPrint 2>&1 | Out-Null
 
             # 2. Pre-check RPC
-            try { Get-Printer -ComputerName $server -ErrorAction Stop | Out-Null } catch { Write-Warning "RPC check failed." }
+            try { 
+                $remotePrinters = Get-Printer -ComputerName $server -ErrorAction Stop 
+                $targetPrinter = $remotePrinters | Where-Object { $_.Name -eq $printer -or $_.ShareName -eq $printer } | Select-Object -First 1
+                if ($targetPrinter) {
+                    $printer = $targetPrinter.ShareName
+                    $fullPath = "\\$server\$printer"
+                    Write-Host "Resolved Share: $printer"
+                }
+            } catch { Write-Warning "RPC check failed." }
 
             # 3. Install (Global Add)
             $printArgs = "printui.dll,PrintUIEntry /ga /n`"$fullPath`" /q"
@@ -121,6 +130,7 @@ Create the playbook `ansible/playbooks/install-printer.yml`.
                         # Try COM Object
                         (New-Object -ComObject WScript.Network).AddWindowsPrinterConnection($fullPath)
                     } catch {
+                        Write-Warning "COM failed: $($_.Exception.Message)"
                         if ($serverIP) {
                             Add-Printer -ConnectionName "\\$serverIP\$printer" -ErrorAction Stop
                         } else { throw $_ }
