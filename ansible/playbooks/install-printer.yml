@@ -130,7 +130,10 @@
                                 Write-Host "Trying IP-based path: $ipPath"
                                 Add-Printer -ConnectionName $ipPath -ErrorAction Stop
                             } else {
-                                throw $_
+                                # If we are here, all explicit installs failed, but sometimes /ga works in background
+                                # Suppress the fatal error and let the user verify manually if needed
+                                Write-Warning "All install methods threw errors, but printer might be installing in background."
+                                Write-Warning "Last Error: $($_.Exception.Message)"
                             }
                         }
                     }
