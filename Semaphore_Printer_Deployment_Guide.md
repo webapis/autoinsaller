@@ -101,7 +101,11 @@ Create the playbook `ansible/playbooks/install-printer.yml`.
 
             # 4. Restart Spooler
             Restart-Service Spooler -Force
-            Start-Sleep -Seconds 10
+            $timeout = 0
+            while ((Get-Service Spooler).Status -ne 'Running' -and $timeout -lt 30) {
+                Start-Sleep -Seconds 1
+                $timeout++
+            }
 
             # 5. Verify and Fallback
             $installed = Get-Printer | Where-Object { $_.Name -eq $fullPath -or $_.Name -like "*$printer*" }
@@ -115,6 +119,7 @@ Create the playbook `ansible/playbooks/install-printer.yml`.
             # 6. Cleanup
             & net.exe use "\\$server\IPC$" /delete 2>&1 | Out-Null
             & cmdkey /delete:$server 2>&1 | Out-Null
+            & cmdkey /delete:$shortServer 2>&1 | Out-Null
         }
 ```
 

@@ -10,6 +10,7 @@
     ansible_connection: winrm
     ansible_winrm_server_cert_validation: ignore
     ansible_winrm_transport: ntlm
+    ansible_winrm_read_timeout_sec: 90 # Increase timeout for long driver installs
 
     # Printer Details
     print_server: "HVTRM-WS-PRNT.caliksoa.local"
@@ -41,6 +42,7 @@
       win_shell: |
         $ErrorActionPreference = 'Stop'
         $server = "{{ print_server }}"
+        $shortServer = $server.Split('.')[0]
         $printer = "{{ clean_printer_name }}"
         $user = "{{ share_user }}"
         $pass = "{{ share_password }}"
@@ -48,8 +50,9 @@
 
         try {
             # 1. Authenticate
-            # Use cmdkey to store credentials for RPC/Spooler access (Critical for Add-Printer)
+            # Use cmdkey to store credentials for RPC/Spooler access (FQDN and Short Name)
             & cmdkey /add:$server /user:$user /pass:$pass | Out-Null
+            & cmdkey /add:$shortServer /user:$user /pass:$pass | Out-Null
             
             # Use net use for SMB access (IPC$)
             $netArgs = @("use", "\\$server\IPC$", "/user:$user", "$pass")
@@ -71,7 +74,13 @@
 
             # 4. Restart Spooler to register the global printer
             Restart-Service Spooler -Force
-            Start-Sleep -Seconds 10
+            
+            # Wait for Spooler to be fully running
+            $timeout = 0
+            while ((Get-Service Spooler).Status -ne 'Running' -and $timeout -lt 30) {
+                Start-Sleep -Seconds 1
+                $timeout++
+            }
 
             # 5. Verify and Fallback
             # Check if printer exists by name (partial match to be safe against FQDN vs NetBIOS differences)
@@ -86,4 +95,5 @@
             # 6. Cleanup
             & net.exe use "\\$server\IPC$" /delete 2>&1 | Out-Null
             & cmdkey /delete:$server 2>&1 | Out-Null
+            & cmdkey /delete:$shortServer 2>&1 | Out-Null
         }
