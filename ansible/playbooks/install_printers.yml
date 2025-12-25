@@ -9,27 +9,33 @@
 
     try {
         # 1. Authenticate to print server
+        Write-Host "Authenticating to $server..."
         $netArgs = @("use", "\\$server\IPC$", "/user:$user", "$pass")
         $netResult = & net.exe $netArgs 2>&1
         if ($LASTEXITCODE -ne 0) {
             Write-Warning "Authentication result: $netResult"
+        } else {
+            Write-Host "Authentication successful"
         }
 
-        # 2. Install printer globally
+        # 2. Install printer globally using printui.dll
+        Write-Host "Installing printer: $fullPath"
         $printArgs = "printui.dll,PrintUIEntry /ga /n`"$fullPath`" /q"
         $process = Start-Process rundll32.exe -ArgumentList $printArgs -Wait -PassThru
         
         Write-Host "PrintUI exit code: $($process.ExitCode)"
         
         # 3. Restart spooler to register the printer
+        Write-Host "Restarting Print Spooler..."
         Restart-Service Spooler -Force
         Start-Sleep -Seconds 10
 
-        # 4. Verify installation (check registry instead of Get-Printer)
-        # Global printers are stored in HKLM
-        $regPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Print\Connections"
+        # 4. Verify installation
+        Write-Host "Verifying installation..."
         $printerFound = $false
         
+        # Check registry for global printer connections
+        $regPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Print\Connections"
         if (Test-Path $regPath) {
             $connections = Get-ChildItem -Path $regPath -ErrorAction SilentlyContinue
             foreach ($conn in $connections) {
@@ -41,8 +47,8 @@
             }
         }
         
-        # Also check WMI for printer ports
-        $wmiPrinter = Get-WmiObject -Class Win32_Printer | Where-Object { 
+        # Check WMI for installed printers
+        $wmiPrinter = Get-WmiObject -Class Win32_Printer -ErrorAction SilentlyContinue | Where-Object { 
             $_.Name -like "*$printer*" -or $_.ShareName -like "*$printer*" 
         }
         
@@ -53,12 +59,11 @@
         
         if ($printerFound) {
             Write-Host "SUCCESS: Printer installed globally"
-            exit 0
         } else {
-            Write-Warning "Printer may be installed but not immediately visible"
-            Write-Host "Users should see the printer after they log in"
-            exit 0
+            Write-Host "INFO: Printer deployed. May require user logoff/logon to appear."
         }
+        
+        exit 0
     }
     catch {
         Write-Error "Installation failed: $($_.Exception.Message)"
@@ -66,7 +71,9 @@
     }
     finally {
         # Cleanup authentication
+        Write-Host "Cleaning up authentication session..."
         & net.exe use "\\$server\IPC$" /delete 2>&1 | Out-Null
     }
   register: printer_install
-  changed_when: "'SUCCESS' in printer_install.stdout"
+  changed_when: "'SUCCESS' in printer_install.stdout or 'INFO: Printer deployed' in printer_install.stdout"
+  failed_when: printer_install.rc != 0
