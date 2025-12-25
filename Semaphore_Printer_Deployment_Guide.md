@@ -54,7 +54,8 @@ Create the playbook `ansible/playbooks/install-printer.yml`.
     ansible_password: "{{ target_password }}"
     ansible_connection: winrm
     ansible_winrm_server_cert_validation: ignore
-    ansible_winrm_transport: ntlm
+    ansible_winrm_transport: credssp
+    ansible_winrm_read_timeout_sec: 90
 
     # Printer Details
     print_server: "HVTRM-WS-PRNT.caliksoa.local"
@@ -127,13 +128,17 @@ Create the playbook `ansible/playbooks/install-printer.yml`.
                     Add-Printer -ConnectionName $fullPath -ErrorAction Stop
                 } catch {
                     try {
-                        # Try COM Object
-                        (New-Object -ComObject WScript.Network).AddWindowsPrinterConnection($fullPath)
+                        # Try WMI
+                        ([wmiclass]"\\.\root\cimv2:Win32_Printer").AddPrinterConnection($fullPath)
                     } catch {
-                        Write-Warning "COM failed: $($_.Exception.Message)"
-                        if ($serverIP) {
-                            Add-Printer -ConnectionName "\\$serverIP\$printer" -ErrorAction Stop
-                        } else { throw $_ }
+                        try {
+                            # Try COM Object
+                            (New-Object -ComObject WScript.Network).AddWindowsPrinterConnection($fullPath)
+                        } catch {
+                            if ($serverIP) {
+                                Add-Printer -ConnectionName "\\$serverIP\$printer" -ErrorAction Stop
+                            } else { throw $_ }
+                        }
                     }
                 }
             }

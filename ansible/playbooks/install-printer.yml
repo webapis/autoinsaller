@@ -9,7 +9,7 @@
     ansible_password: "{{ target_password }}"
     ansible_connection: winrm
     ansible_winrm_server_cert_validation: ignore
-    ansible_winrm_transport: ntlm
+    ansible_winrm_transport: credssp
     ansible_winrm_read_timeout_sec: 90 # Increase timeout for long driver installs
 
     # Printer Details
@@ -113,18 +113,25 @@
                 } catch {
                     Write-Warning "FQDN Add-Printer failed: $($_.Exception.Message)"
                     
-                    # Try COM Object as intermediate fallback (often works better for auth)
+                    # Try WMI (Win32_Printer) - Classic RPC fallback
                     try {
-                        Write-Host "Attempting WScript.Network COM object..."
-                        (New-Object -ComObject WScript.Network).AddWindowsPrinterConnection($fullPath)
+                        Write-Host "Attempting Win32_Printer WMI connection..."
+                        ([wmiclass]"\\.\root\cimv2:Win32_Printer").AddPrinterConnection($fullPath)
                     } catch {
-                        Write-Warning "COM Object failed: $($_.Exception.Message)"
-                        if ($serverIP) {
-                            $ipPath = "\\$serverIP\$printer"
-                            Write-Host "Trying IP-based path: $ipPath"
-                            Add-Printer -ConnectionName $ipPath -ErrorAction Stop
-                        } else {
-                            throw $_
+                        Write-Warning "WMI failed: $($_.Exception.Message)"
+                        
+                        # Try COM Object
+                        try {
+                            Write-Host "Attempting WScript.Network COM object..."
+                            (New-Object -ComObject WScript.Network).AddWindowsPrinterConnection($fullPath)
+                        } catch {
+                            if ($serverIP) {
+                                $ipPath = "\\$serverIP\$printer"
+                                Write-Host "Trying IP-based path: $ipPath"
+                                Add-Printer -ConnectionName $ipPath -ErrorAction Stop
+                            } else {
+                                throw $_
+                            }
                         }
                     }
                 }
