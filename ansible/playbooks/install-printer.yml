@@ -43,6 +43,9 @@
         $ErrorActionPreference = 'Stop'
         $server = "{{ print_server }}"
         $shortServer = $server.Split('.')[0]
+        # Resolve IP to ensure we cover all bases for RPC auth
+        try { $serverIP = (Test-Connection -ComputerName $server -Count 1 -ErrorAction Stop).IPV4Address.IPAddressToString } catch { $serverIP = $null }
+        
         $printer = "{{ clean_printer_name }}"
         $user = "{{ share_user }}"
         $pass = "{{ share_password }}"
@@ -50,9 +53,10 @@
 
         try {
             # 1. Authenticate
-            # Use cmdkey to store credentials for RPC/Spooler access (FQDN and Short Name)
+            # Use cmdkey to store credentials for RPC/Spooler access (FQDN, Short Name, and IP)
             & cmdkey /add:$server /user:$user /pass:$pass | Out-Null
             & cmdkey /add:$shortServer /user:$user /pass:$pass | Out-Null
+            if ($serverIP) { & cmdkey /add:$serverIP /user:$user /pass:$pass | Out-Null }
             
             # Use net use for SMB access (IPC$)
             $netArgs = @("use", "\\$server\IPC$", "/user:$user", "$pass")
@@ -70,7 +74,7 @@
             # /ga is asynchronous, so we launch it and wait
             $printArgs = "printui.dll,PrintUIEntry /ga /n`"$fullPath`" /q"
             Start-Process rundll32.exe -ArgumentList $printArgs
-            Start-Sleep -Seconds 45
+            Start-Sleep -Seconds 60
 
             # 4. Restart Spooler to register the global printer
             Restart-Service Spooler -Force
@@ -81,13 +85,25 @@
                 Start-Sleep -Seconds 1
                 $timeout++
             }
+            Start-Sleep -Seconds 10 # Extra buffer for RPC endpoints to register
 
             # 5. Verify and Fallback
             # Check if printer exists by name (partial match to be safe against FQDN vs NetBIOS differences)
             $installed = Get-Printer | Where-Object { $_.Name -eq $fullPath -or $_.Name -like "*$printer*" }
             if (-not $installed) {
                 Write-Warning "Global Add failed or delayed. Attempting PowerShell Add-Printer..."
-                Add-Printer -ConnectionName $fullPath -ErrorAction Stop
+                try {
+                    Add-Printer -ConnectionName $fullPath -ErrorAction Stop
+                } catch {
+                    Write-Warning "FQDN Add-Printer failed: $($_.Exception.Message)"
+                    if ($serverIP) {
+                        $ipPath = "\\$serverIP\$printer"
+                        Write-Host "Trying IP-based path: $ipPath"
+                        Add-Printer -ConnectionName $ipPath -ErrorAction Stop
+                    } else {
+                        throw $_
+                    }
+                }
             }
             Write-Host "Printer installed successfully."
         }
@@ -96,4 +112,5 @@
             & net.exe use "\\$server\IPC$" /delete 2>&1 | Out-Null
             & cmdkey /delete:$server 2>&1 | Out-Null
             & cmdkey /delete:$shortServer 2>&1 | Out-Null
+            if ($serverIP) { & cmdkey /delete:$serverIP 2>&1 | Out-Null }
         }
