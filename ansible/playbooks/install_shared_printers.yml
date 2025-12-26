@@ -27,6 +27,10 @@
     share_password: "{{ share_password }}" 
 
   tasks:
+    - name: Verify Selected Printer
+      debug:
+        msg: "Installing printer: {{ selected_printer }}"
+
     - name: Authenticate to Print Server
       # We map the 'print$' share to establish a valid session with Domain Credentials
       ansible.windows.win_mapped_drive:

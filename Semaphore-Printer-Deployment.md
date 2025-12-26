@@ -293,3 +293,21 @@ Get-Printer | Where-Object { $_.Name -like "*Konica*" } | Select-Object Name, Ty
 **Problem: Semaphore runs old code / changes not applying**
 *   **Cause**: Semaphore pulls from the Git Repository, not your local disk.
 *   **Fix**: Ensure you have **committed and pushed** your local changes to the correct branch (e.g., `install-printer`) on GitHub. Check the logs to see which branch Semaphore is fetching.
+
+## 10. Uninstalling Printers
+
+If you need to remove a printer (e.g., to clean up a test run), create a new Task Template in Semaphore:
+
+1.  **Name**: `Uninstall Shared Printer`
+2.  **Playbook**: `ansible/playbooks/uninstall_shared_printers.yml`
+3.  **Survey**: Use the **same survey** as the Install task (Target Host, Credentials, Selected Printer).
+
+When you run this task, it will remove the printer selected in the dropdown from the target machine.
+
+## 11. Bulk Uninstall (Clean Sweep)
+
+To remove **all** managed printers at once (e.g., for decommissioning or resetting a machine):
+
+1.  Create a new playbook `ansible/playbooks/uninstall_all_printers.yml` containing the list of all printers.
+2.  Create a Task Template in Semaphore pointing to this playbook.
+3.  Run it to remove every printer in the list, ignoring errors if they are already missing.
