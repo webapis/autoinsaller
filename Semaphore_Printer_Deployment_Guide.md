@@ -54,7 +54,8 @@ Create the playbook `ansible/playbooks/install-printer.yml`.
     ansible_password: "{{ target_password }}"
     ansible_connection: winrm
     ansible_winrm_server_cert_validation: ignore
-    ansible_winrm_transport: ntlm
+    ansible_winrm_transport: credssp
+    ansible_winrm_read_timeout_sec: 90
 
     # Printer Details
     print_server: "HVTRM-WS-PRNT.caliksoa.local"
@@ -63,24 +64,94 @@ Create the playbook `ansible/playbooks/install-printer.yml`.
     share_password: "DeployUserPassword"
 
   tasks:
-    - name: Authenticate to Print Server (IPC$)
-      # We map the IPC$ share to establish a valid Kerberos/NTLM session with the server
-      win_command: 'net use \\{{ print_server }}\IPC$ /user:{{ share_user }} {{ share_password }}'
+    - name: Configure Point and Print Policies (Prevent Driver Prompts)
+      win_shell: |
+        $p = "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Printers\PointAndPrint"
+        if (!(Test-Path $p)) { New-Item -Path $p -Force | Out-Null }
+        Set-ItemProperty -Path $p -Name "RestrictDriverInstallationToAdministrators" -Value 0 -Type DWord -Force
+        Set-ItemProperty -Path $p -Name "UpdatePromptSettings" -Value 2 -Type DWord -Force
+        Set-ItemProperty -Path $p -Name "NoWarningNoElevationOnInstall" -Value 1 -Type DWord -Force
 
-    - name: Add Printer Globally
-      # /ga = Global Add (per-machine connection)
-      # /n = Printer Name
-      win_command: 'rundll32 printui.dll,PrintUIEntry /ga /n\\{{ print_server }}\{{ printer_name }}'
-
-    - name: Restart Spooler Service
-      # Required for Global Add changes to take effect
+    - name: Restart Spooler Service (Apply Policies)
       win_service:
         name: Spooler
         state: restarted
 
-    - name: Remove Authentication
-      win_command: 'net use \\{{ print_server }}\IPC$ /delete'
-      ignore_errors: yes
+    - name: Install Printer (Authenticated Session)
+      # Consolidating Auth, Install, and Verify into one task ensures the session persists
+      win_shell: |
+        $ErrorActionPreference = 'Stop'
+        $server = "{{ print_server }}"
+        $printer = "{{ printer_name | replace('[', '') | replace(']', '') | replace('\"', '') }}"
+        $user = "{{ share_user }}"
+        $pass = "{{ share_password }}"
+        $fullPath = "\\$server\$printer"
+
+        try {
+            # 1. Authenticate
+            & cmdkey /add:$server /user:$user /pass:$pass | Out-Null
+            $netArgs = @("use", "\\$server\IPC$", "/user:$user", "$pass")
+            & net.exe $netArgs 2>&1 | Out-Null
+            $netArgsPrint = @("use", "\\$server\print$", "/user:$user", "$pass")
+            & net.exe $netArgsPrint 2>&1 | Out-Null
+
+            # 2. Pre-check RPC
+            try { 
+                $remotePrinters = Get-Printer -ComputerName $server -ErrorAction Stop 
+                $targetPrinter = $remotePrinters | Where-Object { $_.Name -eq $printer -or $_.ShareName -eq $printer } | Select-Object -First 1
+                if ($targetPrinter) {
+                    $printer = $targetPrinter.ShareName
+                    $fullPath = "\\$server\$printer"
+                    Write-Host "Resolved Share: $printer"
+                }
+            } catch { Write-Warning "RPC check failed." }
+
+            # 3. Install (Global Add)
+            $printArgs = "printui.dll,PrintUIEntry /ga /n`"$fullPath`" /q"
+            Start-Process rundll32.exe -ArgumentList $printArgs
+            Start-Sleep -Seconds 60
+
+            # 4. Restart Spooler
+            Restart-Service Spooler -Force
+            $timeout = 0
+            while ((Get-Service Spooler).Status -ne 'Running' -and $timeout -lt 30) {
+                Start-Sleep -Seconds 1
+                $timeout++
+            }
+            Start-Sleep -Seconds 10
+
+            # 5. Verify and Fallback
+            $installed = Get-Printer | Where-Object { $_.Name -eq $fullPath -or $_.Name -like "*$printer*" }
+            if (-not $installed) {
+                Write-Warning "Global Add verification failed. Attempting PowerShell Add-Printer..."
+                try {
+                    Add-Printer -ConnectionName $fullPath -ErrorAction Stop
+                } catch {
+                    try {
+                        # Try WMI
+                        ([wmiclass]"\\.\root\cimv2:Win32_Printer").AddPrinterConnection($fullPath)
+                    } catch {
+                        try {
+                            # Try COM Object
+                            (New-Object -ComObject WScript.Network).AddWindowsPrinterConnection($fullPath)
+                        } catch {
+                            if ($serverIP) {
+                                Add-Printer -ConnectionName "\\$serverIP\$printer" -ErrorAction Stop
+                            } else { throw $_ }
+                        }
+                    }
+                }
+            }
+            Write-Host "Printer installed successfully."
+        }
+        finally {
+            # 6. Cleanup
+            & net.exe use "\\$server\IPC$" /delete 2>&1 | Out-Null
+            & net.exe use "\\$server\print$" /delete 2>&1 | Out-Null
+            & cmdkey /delete:$server 2>&1 | Out-Null
+            & cmdkey /delete:$shortServer 2>&1 | Out-Null
+            if ($serverIP) { & cmdkey /delete:$serverIP 2>&1 | Out-Null }
+        }
 ```
 
 ### 4. Template Configuration
