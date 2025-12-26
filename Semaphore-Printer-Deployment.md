@@ -278,3 +278,14 @@ To allow users to add printers easily later (or via GPO) without Admin prompts:
 **Error: Printer installs but user cannot see it**
 *   You likely installed it as the Service Account.
 *   Use the TCP/IP Port method (Scenario A) which creates a machine-wide printer queue.
+
+## 8. Verification
+
+To confirm the printers are installed correctly as "Per-Machine" connections, run this PowerShell command on the Target PC:
+
+```powershell
+Get-Printer | Where-Object { $_.Name -like "*Konica*" } | Select-Object Name, Type, Local, PortName
+```
+
+*   **Name**: Should match your printer names.
+*   **Local**: Should be `True` (indicating it is registered on the machine, not just the user).
