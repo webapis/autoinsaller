@@ -12,7 +12,7 @@
         ansible_connection: winrm
         ansible_port: 5985
         ansible_winrm_scheme: http
-        ansible_winrm_transport: ntlm
+        ansible_winrm_transport: credssp
         ansible_winrm_server_cert_validation: ignore
 
 - name: Deploy Shared Printers (Global)
@@ -22,25 +22,11 @@
     # Configuration
     print_server: "HVTRM-WS-PRNT.caliksoa.local"
     # selected_printer variable is expected from Semaphore Survey
-    
-    # Credentials (for authenticating to the Print Server share)
-    # Note: share_password should be defined in Semaphore Environment/Secrets
-    share_user: "caliksoa\\u13589"
-    share_password: "{{ share_password }}" 
 
   tasks:
     - name: Verify Selected Printer
       debug:
         msg: "Installing printer: {{ selected_printer }}"
-
-    - name: Authenticate to Print Server
-      # We map the 'print$' share to establish a valid session with Domain Credentials
-      ansible.windows.win_mapped_drive:
-        letter: P
-        path: "\\\\{{ print_server }}\\print$"
-        username: "{{ share_user }}"
-        password: "{{ share_password }}"
-        state: present
 
     # FIX: Disable "Point and Print" restrictions to prevent driver install prompts (which cause hangs)
     - name: Allow Point and Print (RestrictDriverInstallationToAdministrators = 0)
@@ -70,11 +56,6 @@
       win_service:
         name: Spooler
         state: restarted
-
-    - name: Unmap Auth Drive
-      ansible.windows.win_mapped_drive:
-        letter: P
-        state: absent
 
     # Security Cleanup: Revert Point and Print restrictions to defaults
     - name: Revert Point and Print (RestrictDriverInstallationToAdministrators)
