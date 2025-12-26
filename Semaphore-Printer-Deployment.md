@@ -93,6 +93,11 @@ You can verify the state using `Test-WinRMState.ps1`.
         *   **Title**: Local Admin Password
         *   **Type**: Password
         *   **Required**: Yes
+    *   **Variable**: `selected_printer`
+        *   **Title**: Select Printer
+        *   **Type**: Select
+        *   **Options**: `MRK-K0-BT-Konica-224-Color`, `MRK-K1-Vize-Konica-C301-Color`
+        *   **Required**: Yes
 
 3.  **Playbook Structure (Dynamic Inventory)**:
     Since the target IP is provided at runtime, use the `add_host` module in your playbook to register it dynamically.
@@ -143,8 +148,7 @@ We use the `rundll32 printui.dll /ga` command (Global Add) to create a machine-w
   vars:
     # Configuration
     print_server: "HVTRM-WS-PRNT.caliksoa.local"
-    printer_1: "MRK-K0-BT-Konica-224-Color"
-    printer_2: "MRK-K1-Vize-Konica-C301-Color"
+    # selected_printer variable comes from Semaphore Survey
     
     # Credentials (for authenticating to the Print Server share)
     share_user: "caliksoa\\u13589"
@@ -177,19 +181,13 @@ We use the `rundll32 printui.dll /ga` command (Global Add) to create a machine-w
         type: dword
         state: present
 
-    - name: Add Printer 1 (Global Machine Connection)
+    - name: Add Selected Printer (Global Machine Connection)
       win_shell: |
-        rundll32 printui.dll,PrintUIEntry /ga /n"\\{{ print_server }}\{{ printer_1 }}" /q
+        rundll32 printui.dll,PrintUIEntry /ga /n"\\{{ print_server }}\{{ selected_printer }}" /q
       # /ga = Global Add (per machine)
       # /n = UNC Path
-      register: p1_out
-      failed_when: p1_out.rc != 0 and p1_out.rc != 0x00000057 # Ignore 'already exists' errors
-
-    - name: Add Printer 2 (Global Machine Connection)
-      win_shell: |
-        rundll32 printui.dll,PrintUIEntry /ga /n"\\{{ print_server }}\{{ printer_2 }}" /q
-      register: p2_out
-      failed_when: p2_out.rc != 0 and p2_out.rc != 0x00000057
+      register: printer_out
+      failed_when: printer_out.rc != 0 and printer_out.rc != 0x00000057 # Ignore 'already exists' errors
 
     - name: Restart Spooler
       # Required for Global connections to appear in the UI immediately

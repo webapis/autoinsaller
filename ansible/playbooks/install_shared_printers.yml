@@ -19,8 +19,7 @@
   vars:
     # Configuration
     print_server: "HVTRM-WS-PRNT.caliksoa.local"
-    printer_1: "MRK-K0-BT-Konica-224-Color"
-    printer_2: "MRK-K1-Vize-Konica-C301-Color"
+    # selected_printer variable is expected from Semaphore Survey
     
     # Credentials (for authenticating to the Print Server share)
     # Note: share_password should be defined in Semaphore Environment/Secrets
@@ -54,17 +53,11 @@
         type: dword
         state: present
 
-    - name: Add Printer 1 (Global Machine Connection)
+    - name: Add Selected Printer (Global Machine Connection)
       win_shell: |
-        rundll32 printui.dll,PrintUIEntry /ga /n"\\{{ print_server }}\{{ printer_1 }}" /q
-      register: p1_out
-      failed_when: p1_out.rc != 0 and p1_out.rc != 0x00000057 # Ignore 'already exists' errors
-
-    - name: Add Printer 2 (Global Machine Connection)
-      win_shell: |
-        rundll32 printui.dll,PrintUIEntry /ga /n"\\{{ print_server }}\{{ printer_2 }}" /q
-      register: p2_out
-      failed_when: p2_out.rc != 0 and p2_out.rc != 0x00000057
+        rundll32 printui.dll,PrintUIEntry /ga /n"\\{{ print_server }}\{{ selected_printer }}" /q
+      register: printer_out
+      failed_when: printer_out.rc != 0 and printer_out.rc != 0x00000057 # Ignore 'already exists' errors
 
     - name: Restart Spooler
       # Required for Global connections to appear in the UI immediately
