@@ -1,0 +1,61 @@
+---
+- name: Register Target Host from Semaphore Survey
+  hosts: localhost
+  gather_facts: no
+  tasks:
+    - name: Add Dynamic Host
+      add_host:
+        name: "{{ target_host }}"
+        groups: deployment_targets
+        ansible_user: "{{ target_username }}"
+        ansible_password: "{{ target_password }}"
+        ansible_connection: winrm
+        ansible_winrm_transport: ntlm
+        ansible_winrm_server_cert_validation: ignore
+
+- name: Deploy Shared Printers (Global)
+  hosts: deployment_targets
+  gather_facts: no
+  vars:
+    # Configuration
+    print_server: "HVTRM-WS-PRNT.caliksoa.local"
+    printer_1: "MRK-K0-BT-Konica-224-Color"
+    printer_2: "MRK-K1-Vize-Konica-C301-Color"
+    
+    # Credentials (for authenticating to the Print Server share)
+    # Note: share_password should be defined in Semaphore Environment/Secrets
+    share_user: "caliksoa\\u13589"
+    share_password: "{{ share_password }}" 
+
+  tasks:
+    - name: Authenticate to Print Server
+      # We map the 'print$' share to establish a valid session with Domain Credentials
+      win_mapped_drive:
+        letter: P
+        path: "\\\\{{ print_server }}\\print$"
+        username: "{{ share_user }}"
+        password: "{{ share_password }}"
+        state: present
+
+    - name: Add Printer 1 (Global Machine Connection)
+      win_shell: |
+        rundll32 printui.dll,PrintUIEntry /ga /n"\\{{ print_server }}\{{ printer_1 }}"
+      register: p1_out
+      failed_when: p1_out.rc != 0 and p1_out.rc != 0x00000057 # Ignore 'already exists' errors
+
+    - name: Add Printer 2 (Global Machine Connection)
+      win_shell: |
+        rundll32 printui.dll,PrintUIEntry /ga /n"\\{{ print_server }}\{{ printer_2 }}"
+      register: p2_out
+      failed_when: p2_out.rc != 0 and p2_out.rc != 0x00000057
+
+    - name: Restart Spooler
+      # Required for Global connections to appear in the UI immediately
+      win_service:
+        name: Spooler
+        state: restarted
+
+    - name: Unmap Auth Drive
+      win_mapped_drive:
+        letter: P
+        state: absent

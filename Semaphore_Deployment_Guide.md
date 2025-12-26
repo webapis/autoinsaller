@@ -23,8 +23,14 @@ We must separate the credentials:
 
 ### 1. Prepare Target Desktops
 Ensure WinRM is enabled and listening on the target desktops.
-*   **Audit:** Run `Test-WinRMState.ps1` to check status.
-*   **Configure:** Run `Configure-WinRM.ps1` or `Enable-PSRemoting -Force`.
+
+**Automated Configuration (Recommended):**
+1.  Copy `Configure-WinRM.ps1` and `Test-WinRMState.ps1` to the target machine.
+2.  Open PowerShell as Administrator.
+3.  Run **`.\Configure-WinRM.ps1`** to enable WinRM, CredSSP, and open Firewall ports (5985/5986/445).
+4.  Run **`.\Test-WinRMState.ps1`** to verify the configuration.
+
+**Manual Checks:**
 *   **Firewall:** Ensure port 5985 (HTTP) or 5986 (HTTPS) is open.
 
 ### 2. Configure Semaphore UI

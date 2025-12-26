@@ -117,40 +117,52 @@ function Invoke-WinRmAudit {
 
     # --- 3. Firewall Rules ---
     Write-Host "`n[3] Checking Firewall Rules..." -ForegroundColor Yellow
-    $winrmRuleGroup = "@FirewallAPI.dll,-30267"
-    $firewallRules = Get-NetFirewallRule -Group $winrmRuleGroup -ErrorAction SilentlyContinue
+    
+    $profiles = Get-NetConnectionProfile
+    $currentCategories = if ($profiles) { $profiles.NetworkCategory } else { @("Public") }
+    Write-Host "    Current Network Profile(s): $($currentCategories -join ', ')" -ForegroundColor Cyan
 
-    if ($firewallRules) {
-        $ruleStatus = $firewallRules | Select-Object `
-            DisplayName,
-            @{Name="Enabled";  Expression={$_.Enabled}},
-            @{Name="Profiles"; Expression={$_.Profile}},
-            @{Name="Direction";Expression={$_.Direction}},
-            @{Name="LocalPort"; Expression={(Get-NetFirewallPortFilter -AssociatedNetFirewallRule $_).LocalPort}}
+    $ruleChecks = @(
+        @{ Id="WINRM-HTTP-In-TCP";  Label="WinRM HTTP (5985)";  Type="WinRM" },
+        @{ Id="WINRM-HTTPS-In-TCP"; Label="WinRM HTTPS (5986)"; Type="WinRM" },
+        @{ Id="FPS-SMB-In-TCP";     Label="SMB (445)";          Type="Share" }
+    )
 
-        $ruleStatus | Format-Table -AutoSize
+    $winrmOpen = $false
+    $smbOpen   = $false
 
-        $currentProfile = (Get-NetConnectionProfile | Select-Object -First 1).NetworkCategory
+    foreach ($check in $ruleChecks) {
+        $rule = Get-NetFirewallRule -Name $check.Id -ErrorAction SilentlyContinue
+        $isActive = $false
 
-        $hasEnabledInbound = $firewallRules | Where-Object {
-            $_.Enabled -eq 'True' -and
-            $_.Direction -eq 'Inbound' -and
-            ($_.Profile -contains 'Any' -or
-             $_.Profile -contains $currentProfile -or
-             ($currentProfile -eq 'DomainAuthenticated' -and ($_.Profile -like '*Domain*' -or $_.Profile -contains 'Domain')))
+        if ($rule -and $rule.Enabled -eq 'True' -and $rule.Direction -eq 'Inbound') {
+            if ($rule.Profile -contains 'Any') {
+                $isActive = $true
+            } else {
+                foreach ($cat in $currentCategories) {
+                    $mappedCat = if ($cat -eq 'DomainAuthenticated') { 'Domain' } else { $cat }
+                    if ($rule.Profile -contains $mappedCat) { $isActive = $true; break }
+                }
+            }
         }
 
-        if ($hasEnabledInbound) {
-            Write-Host "[SUCCESS] Enabled inbound firewall rule found for current profile ($currentProfile)." -ForegroundColor Green
-        }
-        else {
-            $auditFailed = $true
-            Write-Warning "No enabled inbound WinRM firewall rule for current profile ($currentProfile)."
+        if ($isActive) {
+            Write-Host "    [+] $($check.Label) is OPEN." -ForegroundColor Green
+            if ($check.Type -eq "WinRM") { $winrmOpen = $true }
+            if ($check.Type -eq "Share") { $smbOpen = $true }
+        } else {
+            Write-Host "    [-] $($check.Label) is NOT open." -ForegroundColor Yellow
         }
     }
-    else {
+
+    if (-not $winrmOpen) {
         $auditFailed = $true
-        Write-Warning "No Windows Remote Management firewall rules found."
+        Write-Warning "WinRM is not accessible (neither HTTP nor HTTPS rules are active)."
+    }
+
+    if (-not $smbOpen) {
+        $auditFailed = $true
+        Write-Warning "File Sharing (SMB) is not accessible. Driver downloads may fail."
     }
 
     # --- 4. CredSSP Status ---

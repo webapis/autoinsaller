@@ -33,8 +33,15 @@ New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies
     -PropertyType DWord `
     -Force
 
-# Check if WinRM firewall rule is enabled
-Enable-NetFirewallRule -Name "WINRM-HTTP-In-TCP"
+# Configure Firewall Rules
+# Ensure WinRM HTTP (5985) is open
+Enable-NetFirewallRule -Name "WINRM-HTTP-In-TCP" -ErrorAction SilentlyContinue
+
+# Ensure WinRM HTTPS (5986) is open
+Enable-NetFirewallRule -Name "WINRM-HTTPS-In-TCP" -ErrorAction SilentlyContinue
+
+# Ensure SMB (445) and RPC ports are open (File and Printer Sharing)
+Enable-NetFirewallRule -DisplayGroup "File and Printer Sharing" -ErrorAction SilentlyContinue
 
 # Restart WinRM Service
 Restart-Service WinRM

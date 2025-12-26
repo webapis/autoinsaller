@@ -59,6 +59,17 @@ To keep all configuration files organized, we will use the following directory s
 
 Before configuring Semaphore, you must prepare your Windows desktop machines to accept remote management via WinRM with CredSSP authentication.
 
+### Option A: Automated Setup (Recommended)
+
+Use the provided PowerShell scripts to automate the configuration.
+
+1.  Copy `Configure-WinRM.ps1` and `Test-WinRMState.ps1` to the target machine.
+2.  Open PowerShell as Administrator.
+3.  Run `.\Configure-WinRM.ps1` to apply all necessary settings.
+4.  Run `.\Test-WinRMState.ps1` to verify the configuration.
+
+### Option B: Manual Setup
+
 ### 1.1 Enable WinRM on Windows
 
 On each Windows desktop you want to manage, run PowerShell as Administrator and execute:
