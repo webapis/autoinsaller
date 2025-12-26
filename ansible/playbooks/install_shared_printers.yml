@@ -25,7 +25,7 @@
     
     # Credentials (for authenticating to the Print Server share)
     # Note: share_password should be defined in Semaphore Environment/Secrets
-    share_user: "caliksoa\\srv-gap-cppm"
+    share_user: "caliksoa\\u13589"
     share_password: "{{ share_password }}" 
 
   tasks:
