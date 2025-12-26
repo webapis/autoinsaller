@@ -287,3 +287,9 @@ Get-Printer | Where-Object { $_.Name -like "*Konica*" } | Select-Object Name, Ty
 
 *   **Name**: Should match your printer names.
 *   **Local**: Should be `True` (indicating it is registered on the machine, not just the user).
+
+## 9. Troubleshooting Updates
+
+**Problem: Semaphore runs old code / changes not applying**
+*   **Cause**: Semaphore pulls from the Git Repository, not your local disk.
+*   **Fix**: Ensure you have **committed and pushed** your local changes to the correct branch (e.g., `install-printer`) on GitHub. Check the logs to see which branch Semaphore is fetching.
