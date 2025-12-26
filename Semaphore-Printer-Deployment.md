@@ -153,16 +153,33 @@ We use the `rundll32 printui.dll /ga` command (Global Add) to create a machine-w
   tasks:
     - name: Authenticate to Print Server
       # We map the 'print$' share to establish a valid session with Domain Credentials
-      win_mapped_drive:
+      ansible.windows.win_mapped_drive:
         letter: P
         path: "\\\\{{ print_server }}\\print$"
         username: "{{ share_user }}"
         password: "{{ share_password }}"
         state: present
 
+    # FIX: Disable "Point and Print" restrictions to prevent driver install prompts (which cause hangs)
+    - name: Allow Point and Print (RestrictDriverInstallationToAdministrators = 0)
+      ansible.windows.win_regedit:
+        path: HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Printers\PointAndPrint
+        name: RestrictDriverInstallationToAdministrators
+        data: 0
+        type: dword
+        state: present
+
+    - name: Disable Point and Print Warnings (UpdatePromptSettings = 2)
+      ansible.windows.win_regedit:
+        path: HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Printers\PointAndPrint
+        name: UpdatePromptSettings
+        data: 2
+        type: dword
+        state: present
+
     - name: Add Printer 1 (Global Machine Connection)
       win_shell: |
-        rundll32 printui.dll,PrintUIEntry /ga /n"\\{{ print_server }}\{{ printer_1 }}"
+        rundll32 printui.dll,PrintUIEntry /ga /n"\\{{ print_server }}\{{ printer_1 }}" /q
       # /ga = Global Add (per machine)
       # /n = UNC Path
       register: p1_out
@@ -170,7 +187,7 @@ We use the `rundll32 printui.dll /ga` command (Global Add) to create a machine-w
 
     - name: Add Printer 2 (Global Machine Connection)
       win_shell: |
-        rundll32 printui.dll,PrintUIEntry /ga /n"\\{{ print_server }}\{{ printer_2 }}"
+        rundll32 printui.dll,PrintUIEntry /ga /n"\\{{ print_server }}\{{ printer_2 }}" /q
       register: p2_out
       failed_when: p2_out.rc != 0 and p2_out.rc != 0x00000057
 
@@ -181,7 +198,7 @@ We use the `rundll32 printui.dll /ga` command (Global Add) to create a machine-w
         state: restarted
 
     - name: Unmap Auth Drive
-      win_mapped_drive:
+      ansible.windows.win_mapped_drive:
         letter: P
         state: absent
 ```
