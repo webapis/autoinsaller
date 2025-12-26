@@ -201,6 +201,19 @@ We use the `rundll32 printui.dll /ga` command (Global Add) to create a machine-w
       ansible.windows.win_mapped_drive:
         letter: P
         state: absent
+
+    # Security Cleanup: Revert Point and Print restrictions to defaults
+    - name: Revert Point and Print (RestrictDriverInstallationToAdministrators)
+      ansible.windows.win_regedit:
+        path: HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Printers\PointAndPrint
+        name: RestrictDriverInstallationToAdministrators
+        state: absent
+
+    - name: Revert Point and Print Warnings (UpdatePromptSettings)
+      ansible.windows.win_regedit:
+        path: HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Printers\PointAndPrint
+        name: UpdatePromptSettings
+        state: absent
 ```
 
 ### Scenario B: Map Shared Printer (Requires CredSSP)
