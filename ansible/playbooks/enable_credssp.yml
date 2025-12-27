@@ -3,6 +3,10 @@
   hosts: localhost
   gather_facts: no
   tasks:
+    - name: Debug Connection Info
+      debug:
+        msg: "Connecting to {{ target_host }} via NTLM. User: {{ target_username }} (Tip: Use .\\Administrator for local accounts)"
+
     - name: Add Dynamic Host
       add_host:
         name: "{{ target_host }}"
