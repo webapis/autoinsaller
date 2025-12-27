@@ -25,3 +25,11 @@
   tasks:
     - name: Enable CredSSP Server Role
       win_shell: Enable-WSManCredSSP -Role Server -Force
+
+    - name: Ensure LocalAccountTokenFilterPolicy is set to 1
+      ansible.windows.win_regedit:
+        path: HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System
+        name: LocalAccountTokenFilterPolicy
+        data: 1
+        type: dword
+        state: present

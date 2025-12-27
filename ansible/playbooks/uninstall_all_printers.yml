@@ -26,6 +26,10 @@
       - "MRK-K1-Vize-Konica-C301-Color"
 
   tasks:
+    - name: Debug Printers to Remove
+      debug:
+        msg: "Removing the following printers: {{ printers_to_remove }}"
+
     - name: Remove Printer
       win_shell: |
         rundll32 printui.dll,PrintUIEntry /gd /n"\\{{ print_server }}\{{ item }}" /q
