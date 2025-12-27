@@ -114,16 +114,13 @@ You can verify the state using `Test-WinRMState.ps1`.
             ansible_user: "{{ target_username }}"
             ansible_password: "{{ target_password }}"
             ansible_connection: winrm
-            ansible_winrm_transport: ntlm
+            ansible_winrm_transport: credssp
             ansible_winrm_server_cert_validation: ignore
 
     - name: Deploy Printer
       hosts: deployment_targets
       gather_facts: yes
       vars:
-        # Resource Account (for accessing Print Server)
-        share_user: "caliksoa\\u13589"
-        share_password: "YourDomainPassword" # Ideally use Ansible Vault or Semaphore Environment
       tasks:
         # ... tasks follow ...
     ```
@@ -149,21 +146,8 @@ We use the `rundll32 printui.dll /ga` command (Global Add) to create a machine-w
     # Configuration
     print_server: "HVTRM-WS-PRNT.caliksoa.local"
     # selected_printer variable comes from Semaphore Survey
-    
-    # Credentials (for authenticating to the Print Server share)
-    share_user: "caliksoa\\u13589"
-    share_password: "{{ share_password }}" 
 
   tasks:
-    - name: Authenticate to Print Server
-      # We map the 'print$' share to establish a valid session with Domain Credentials
-      ansible.windows.win_mapped_drive:
-        letter: P
-        path: "\\\\{{ print_server }}\\print$"
-        username: "{{ share_user }}"
-        password: "{{ share_password }}"
-        state: present
-
     # FIX: Disable "Point and Print" restrictions to prevent driver install prompts (which cause hangs)
     - name: Allow Point and Print (RestrictDriverInstallationToAdministrators = 0)
       ansible.windows.win_regedit:
@@ -194,11 +178,6 @@ We use the `rundll32 printui.dll /ga` command (Global Add) to create a machine-w
       win_service:
         name: Spooler
         state: restarted
-
-    - name: Unmap Auth Drive
-      ansible.windows.win_mapped_drive:
-        letter: P
-        state: absent
 
     # Security Cleanup: Revert Point and Print restrictions to defaults
     - name: Revert Point and Print (RestrictDriverInstallationToAdministrators)
