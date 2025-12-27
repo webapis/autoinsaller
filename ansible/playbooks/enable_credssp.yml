@@ -5,7 +5,7 @@
   tasks:
     - name: Debug Connection Info
       debug:
-        msg: "Connecting to {{ target_host }} via NTLM. User: {{ target_username }} (Tip: Use .\\Administrator for local accounts)"
+        msg: "Connecting to {{ target_host }} via NTLM. User: {{ target_username }} (Tip: Ensure account exists, is an Admin, and password is correct. Try ComputerName\\User if .\\User fails.)"
 
     - name: Add Dynamic Host
       add_host:
